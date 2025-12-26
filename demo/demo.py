@@ -9,7 +9,8 @@ from pathlib import Path
 import cv2
 import gradio as gr
 
-from src.infer.torch_model import Torch_model
+from d_fine.config import ModelConfig
+from d_fine.infer.torch_model import Torch_model
 
 
 def visualize(img, preds):
@@ -34,23 +35,25 @@ def predict_image(img):
     return res_img
 
 
-model_name = "s"
-classes = {0: "class_name"}
-im_width = 640
-im_height = 640
-conf_thresh = 0.5
-device = "cpu"
-
 f_path = Path(__file__).parent
 
+model_config = ModelConfig(
+    n_outputs=1,
+    input_width=640,
+    input_height=640,
+    conf_thresh=0.5,
+    rect=False,
+    half=False,
+    keep_ratio=False,
+    enable_mask_head=False,
+    dtype="float32",
+    device="cpu",
+)
+
 model = Torch_model(
-    model_name=model_name,
+    model_name="s",
     model_path=f_path / "model.pt",
-    n_outputs=len(classes),
-    input_width=im_width,
-    input_height=im_height,
-    conf_thresh=conf_thresh,
-    device=device,
+    model_config=model_config,
 )
 
 iface = gr.Interface(

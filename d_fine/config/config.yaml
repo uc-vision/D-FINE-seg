@@ -1,0 +1,186 @@
+project_name: ??? # for wandb
+exp_name: baseline # experiment name
+
+### Paths ###
+base_path: ???
+
+exp: ${exp_name}_${now_dir}
+
+# Key variables for brevity (also accessible in train)
+model_name: s # model size (n, s, m, l, x)
+task: detect
+img_size: [640, 640]
+
+# Recommended learning rates by model size
+lrs:
+  n:
+    backbone_lr: 0.0004
+    base_lr: 0.0008
+  s:
+    backbone_lr: 0.00006  # can setup up to 0.0002
+    base_lr: 0.00025  # 0.0004
+  s4:
+    backbone_lr: 0.00006  # same as s
+    base_lr: 0.00025  # same as s
+  m:
+    backbone_lr: 0.00002  # 0.000025
+    base_lr: 0.00015  # 0.00025
+  l:
+    backbone_lr: 0.00000625 # 0.0000125
+    base_lr: 0.000125 # 0.00025
+  x:
+    backbone_lr: 0.0000015  # 0.0000025
+    base_lr: 0.0001  # 0.00025
+
+train:
+  _target_: d_fine.config.TrainConfig
+  project_name: ${project_name}
+  exp_name: ${exp_name}
+  model_name: ${model_name}
+  task: ${task}
+  base_path: ${base_path}
+
+  # Model output paths
+  paths:
+    _target_: d_fine.config.PathConfig
+    base_path: ${train.base_path}
+    path_to_save: ${train.base_path}/output/models/${exp}
+    infer_path: ${train.base_path}/output/infer
+  
+  # Model paths
+  pretrained_dataset: coco # coco, obj2coco
+  pretrained_model_path: pretrained/dfine_${model_name}_${train.pretrained_dataset}.pth # dfine_m_obj2coco.pth
+  
+  # Legacy alias for compatibility
+  root: ${train.base_path}
+
+  ### Configs ###
+  use_wandb: True
+  device: cuda
+
+  ### Distributed Training (DDP) ###
+  ddp:
+    enabled: False  # set to true to use multi-GPU
+    n_gpus: 2  # how many GPUs / processes per node for torchrun
+
+  decision_metrics:
+  - f1
+  - mAP_50
+
+  to_visualize_eval: True # save images with gt and preds
+
+  # Augmentation configurations
+  mosaic_augs:
+    _target_: d_fine.config.MosaicAugsConfig
+    mosaic_prob: 0.8
+    no_mosaic_epochs: 5
+    mosaic_scale: [0.5, 1.5]
+    degrees: 0.0
+    translate: 0.2
+    shear: 2.0
+
+  augs:
+    rotation:
+      prob: 0.0
+      degree: 10
+    multiscale_prob: 0.0
+    rotate_90_prob: 0.05
+    left_right_flip: 0.3
+    up_down_flip: 0.0
+    hsv:
+      prob: 0.2
+      hue_shift_limit: 20.0
+      sat_shift_limit: 30.0
+      val_shift_limit: 20.0
+    to_gray_prob: 0.01
+    blur:
+      prob: 0.01
+      limit: 3
+    gamma:
+      prob: 0.02
+      limit: [80, 120]
+    brightness:
+      prob: 0.02
+      limit: 0.2
+    noise:
+      prob: 0.01
+      std_range: [0.1, 0.2]
+    coarse_dropout_prob: 0.0
+
+  # Image configuration
+  img_config:
+    _target_: d_fine.config.ImageConfig
+    img_size: ${img_size}
+    norm_mean: [0.485, 0.456, 0.406]
+    norm_std: [0.229, 0.224, 0.225]
+    keep_ratio: False
+
+  amp_enabled: True # use automatic mixed precision
+  clip_max_norm: 0.1 # gradient clipping
+
+  batch_size: 8 # physical, should fit on the device. In DDP used per GPU
+  b_accum_steps: 1 # grad accumulation (n * bs)
+  epochs: 55
+  early_stopping: 0 # 0 - no early stopping
+  ignore_background_epochs: 0 # background images are not used for N epochs in train set
+  num_workers: 12 # In DDP used per GPU
+  mask_batch_size: 1000 # number of images to process at once when computing mask metrics
+
+  ### Validation ###
+  conf_thresh: 0.5
+  iou_thresh: 0.5
+
+  ### EMA ###
+  use_ema: True # use exponential moving average model
+  ema_momentum: 0.9998
+
+  ### Optimizer and Scheduler ###
+  lrs: ${lookup:${lrs}, ${model_name}}
+  base_lr: ${train.lrs.base_lr}
+  backbone_lr: ${train.lrs.backbone_lr}
+  cycler_pct_start: 0.1
+  weight_decay: 0.000125
+  betas: [0.9, 0.999]
+  label_smoothing: 0.0
+
+  ### Reproducibility ###
+  seed: 42
+  cudnn_fixed: False
+
+  ### Export configuration ###
+  export:
+    _target_: d_fine.config.ExportConfig
+    half: True # tensorrt, openvino
+    max_batch_size: 1 # torch, tensorrt, openvino
+    dynamic_input: False
+    ov_int8_max_drop: 0.01
+
+  ### Inference configuration ###
+  infer:
+    _target_: d_fine.config.InferConfig
+    to_crop: True  # if True - saves crops of detected objects
+    paddings: # if int - amount of pixes, if float - percentage of image size
+      w: 0.05
+      h: 0.05
+
+
+split:
+  ignore_negatives: False # only use images with labels
+  shuffle: True
+  train_split: 0.85
+  val_split: 0.15 # test_split = 1 - train_split - val_split
+
+
+### service ###
+defaults:
+  - _self_
+  - dataset: ???  # dataset config group: yolo or coco
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .
+
+now_dir: &nowdir ${now:%Y-%m-%d}

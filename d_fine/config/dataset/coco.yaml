@@ -1,0 +1,19 @@
+# @package train.dataset
+# COCO dataset specific configuration
+
+_target_: d_fine.dataset.coco.coco_dataset.CocoDatasetConfig
+
+# Dataset paths
+data_path: ${train.base_path}
+path_to_test_data: ${train.base_path}
+
+base_path: ${train.base_path}
+task: ${train.task}
+debug_img_processing: True
+examples_per_epoch: null
+mosaic_augs: ${train.mosaic_augs}
+augs: ${train.augs}
+img_config: ${train.img_config}
+
+# Note: label_to_name is derived from COCO categories, not specified here
+

@@ -20,7 +20,6 @@ dependencies = [
   "matplotlib>=3.10.3",
   "numpy>=2.1.1",
   "omegaconf>=2.3.0",
-  "opencv-python-headless>=4.10.0.84",
   "pandas>=2.2.3",
   "Pillow>=11.1.0",
   "pillow-heif>=0.18.0",
@@ -48,21 +47,20 @@ export = [
 ]
 
 [project.scripts]
-"d-fine-split" = "src.etl.split:main"
-"d-fine-train" = "src.dl.train_entrypoint:main"
-"d-fine-export" = "src.dl.export:main"
-"d-fine-bench" = "src.dl.bench:main"
-"d-fine-infer" = "src.dl.infer:main"
-"d-fine-check-errors" = "src.dl.check_errors:main"
-"d-fine-test-batching" = "src.dl.test_batching:main"
-"d-fine-ov-int8" = "src.dl.ov_int8:main"
+"d-fine-split" = "d_fine.etl.split:main"
+"d-fine-train" = "d_fine.dl.train_entrypoint:main"
+"d-fine-export" = "d_fine.dl.export:main"
+"d-fine-bench" = "d_fine.dl.bench:main"
+"d-fine-infer" = "d_fine.dl.infer:main"
+"d-fine-check-errors" = "d_fine.dl.check_errors:main"
+"d-fine-test-batching" = "d_fine.dl.test_batching:main"
+"d-fine-ov-int8" = "d_fine.dl.ov_int8:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["d_fine"]
 include = [
-  "config*.yaml",
-  "src/**/config*.yaml",
-  "src/**/*.yaml",
+  "d_fine/config/**/*.yaml",
+  "d_fine/**/*.yaml",
 ]
 exclude = [
   "assets/**",
