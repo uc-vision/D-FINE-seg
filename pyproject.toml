@@ -52,7 +52,6 @@ export = [
 "d-fine-export" = "d_fine.dl.export:main"
 "d-fine-bench" = "d_fine.dl.bench:main"
 "d-fine-infer" = "d_fine.dl.infer:main"
-"d-fine-check-errors" = "d_fine.dl.check_errors:main"
 "d-fine-test-batching" = "d_fine.dl.test_batching:main"
 "d-fine-ov-int8" = "d_fine.dl.ov_int8:main"
 
@@ -94,7 +93,6 @@ train = "d-fine-train"
 export = "d-fine-export"
 bench = "d-fine-bench"
 infer = "d-fine-infer"
-check_errors = "d-fine-check-errors"
 test_batching = "d-fine-test-batching"
 ov_int8 = "d-fine-ov-int8"
 

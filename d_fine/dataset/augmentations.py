@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import cv2
-
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
@@ -11,27 +10,35 @@ from d_fine.utils import LetterboxRect
 
 
 def init_augs(img_config: ImageConfig, mode: Mode, dataset_cfg: DatasetConfig) -> A.Compose:
-    if img_config.keep_ratio:
-        scaleup = mode == Mode.TRAIN
-        resize = [
-            LetterboxRect(
-                height=img_config.target_h,
-                width=img_config.target_w,
-                color=(114, 114, 114),
-                scaleup=scaleup,
-                always_apply=True,
-            )
-        ]
-    else:
-        resize = [A.Resize(img_config.target_h, img_config.target_w, interpolation=cv2.INTER_AREA)]
-
-    norm = [
-        A.Normalize(mean=img_config.norm[0], std=img_config.norm[1]),
-        ToTensorV2(),
-    ]
+    target_h, target_w = img_config.target_h, img_config.target_w
+    use_crop = img_config.use_crop
 
     if mode == Mode.TRAIN:
-        augs = [
+        geometric_augs = [
+            A.HorizontalFlip(p=dataset_cfg.augs.left_right_flip),
+            A.VerticalFlip(p=dataset_cfg.augs.up_down_flip),
+            A.RandomRotate90(p=dataset_cfg.augs.rotate_90_prob),
+            
+            A.ShiftScaleRotate(
+                shift_limit=dataset_cfg.augs.shift_limit,
+                scale_limit=dataset_cfg.augs.scale_limit,
+                rotate_limit=dataset_cfg.augs.rotation.degree,
+                interpolation=cv2.INTER_LINEAR,
+                mask_interpolation=cv2.INTER_NEAREST,
+                border_mode=cv2.BORDER_CONSTANT,
+                value=(114, 114, 114),
+                p=1.0
+            ),
+        ]
+
+        if use_crop:
+            geometric_augs.append(A.RandomCrop(height=target_h, width=target_w, p=1.0))
+        elif img_config.keep_ratio:
+            geometric_augs.append(LetterboxRect(height=target_h, width=target_w))
+        else:
+            geometric_augs.append(A.Resize(height=target_h, width=target_w, interpolation=cv2.INTER_AREA))
+
+        pixel_augs = [
             A.CoarseDropout(
                 num_holes_range=(1, 2),
                 hole_height_range=(0.05, 0.15),
@@ -47,11 +54,11 @@ def init_augs(img_config: ImageConfig, mode: Mode, dataset_cfg: DatasetConfig) -
                 p=dataset_cfg.augs.gamma.prob,
             ),
             A.Blur(
-                blur_limit=dataset_cfg.augs.blur.limit,
+                blur_limit=(3, max(3, dataset_cfg.augs.blur.limit)),
                 p=dataset_cfg.augs.blur.prob,
             ),
             A.GaussNoise(
-                var_limit=tuple(s ** 2 for s in dataset_cfg.augs.noise.std_range),
+                std_range=dataset_cfg.augs.noise.std_range,
                 p=dataset_cfg.augs.noise.prob,
             ),
             A.ToGray(p=dataset_cfg.augs.to_gray_prob),
@@ -61,31 +68,22 @@ def init_augs(img_config: ImageConfig, mode: Mode, dataset_cfg: DatasetConfig) -
                 val_shift_limit=dataset_cfg.augs.hsv.val_shift_limit,
                 p=dataset_cfg.augs.hsv.prob,
             ),
-            A.Affine(
-                rotate=[90, 90],
-                p=dataset_cfg.augs.rotate_90_prob,
-                fit_output=True,
-            ),
-            A.HorizontalFlip(p=dataset_cfg.augs.left_right_flip),
-            A.VerticalFlip(p=dataset_cfg.augs.up_down_flip),
-            A.Rotate(
-                limit=dataset_cfg.augs.rotation.degree,
-                p=dataset_cfg.augs.rotation.prob,
-                interpolation=cv2.INTER_AREA,
-                border_mode=cv2.BORDER_CONSTANT,
-                fill=(114, 114, 114),
-            ),
         ]
 
         return A.Compose(
-            augs + resize + norm,
+            geometric_augs + pixel_augs + [A.Normalize(mean=img_config.norm[0], std=img_config.norm[1]), ToTensorV2()],
             bbox_params=A.BboxParams(format="pascal_voc", label_fields=["class_labels"]),
         )
-    elif mode in [Mode.VAL, Mode.TEST, Mode.BENCH]:
-        return A.Compose(
-            resize + norm,
-            bbox_params=A.BboxParams(format="pascal_voc", label_fields=["class_labels"]),
-        )
-    else:
-        raise ValueError(f"Unknown mode: {mode}")
 
+    # VAL / TEST / BENCH pipeline
+    if use_crop:
+        resize_aug = [A.CenterCrop(height=target_h, width=target_w, p=1.0)]
+    elif img_config.keep_ratio:
+        resize_aug = [LetterboxRect(height=target_h, width=target_w, color=(114, 114, 114))]
+    else:
+        resize_aug = [A.Resize(target_h, target_w, interpolation=cv2.INTER_AREA)]
+
+        return A.Compose(
+        resize_aug + [A.Normalize(mean=img_config.norm[0], std=img_config.norm[1]), ToTensorV2()],
+            bbox_params=A.BboxParams(format="pascal_voc", label_fields=["class_labels"]),
+        )

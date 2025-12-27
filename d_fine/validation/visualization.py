@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import cv2
 import numpy as np
@@ -7,8 +7,8 @@ from loguru import logger
 from numpy.typing import NDArray
 from tqdm import tqdm
 
-from d_fine.utils import abs_xyxy_to_norm_xywh, draw_mask, vis_one_box
-from d_fine.infer.torch_model import Torch_model
+from ..utils import abs_xyxy_to_norm_xywh, draw_mask, vis_one_box
+from ..infer.torch_model import Torch_model
 
 
 def visualize(
@@ -32,7 +32,7 @@ def visualize(
 
 
 def save_yolo_annotations(
-    res: dict[str, Any],
+    res: dict[str, np.ndarray | list[np.ndarray] | None],
     output_path: Path,
     img_path: str,
     img_shape: tuple[int, ...],
@@ -65,7 +65,7 @@ def save_yolo_annotations(
 
 def crops(
     or_img: NDArray[np.uint8],
-    res: dict[str, Any],
+    res: dict[str, np.ndarray | list[np.ndarray] | None],
     paddings: dict[str, float],
     output_path: Path,
     output_stem: str,

@@ -83,6 +83,8 @@ class AugsConfig(BaseModel, frozen=True):
         val_shift_limit: float = 20.0
     
     rotation: RotationAug = RotationAug()
+    shift_limit: float = 0.1
+    scale_limit: tuple[float, float] = (-0.2, 0.2)
     multiscale_prob: float = 0.0
     rotate_90_prob: float = 0.05
     left_right_flip: float = 0.3
@@ -124,6 +126,7 @@ class ImageConfig(BaseModel, frozen=True):
     norm_mean: tuple[float, float, float] = (0.485, 0.456, 0.406)  # ImageNet mean
     norm_std: tuple[float, float, float] = (0.229, 0.224, 0.225)  # ImageNet std
     keep_ratio: bool
+    use_crop: bool = False
 
     @property
     def target_w(self) -> int:
@@ -371,9 +374,12 @@ class TrainConfig(BaseModel, frozen=True):
         if not models_dir.exists():
             raise FileNotFoundError(f"Models directory not found: {models_dir}")
         
+        def get_mtime(x):
+            return x.stat().st_mtime
+
         experiments = sorted(
             [d for d in models_dir.iterdir() if d.is_dir()],
-            key=lambda x: x.stat().st_mtime,
+            key=get_mtime,
             reverse=True
         )
         if not experiments:
@@ -394,4 +400,3 @@ class TrainConfig(BaseModel, frozen=True):
             raise FileNotFoundError(f"Config not found: {config_path}")
         
         return cls.load(config_path)
-

@@ -5,7 +5,7 @@ import click
 
 from d_fine.config import TrainConfig
 from d_fine.infer.torch_model import Torch_model
-from d_fine.visualization import figure_input_type, run_images, run_videos
+from d_fine.validation.visualization import figure_input_type, run_images, run_videos
 
 
 @click.command()

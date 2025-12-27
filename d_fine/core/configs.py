@@ -29,8 +29,8 @@ base_cfg = {
             "loss_giou": 2,
             "loss_fgl": 0.15,
             "loss_ddf": 1.5,
-            "loss_mask_bce": 10,  # only for mask head
-            "loss_mask_dice": 10,  # only for mask head
+            "loss_mask_bce": 1,  # only for mask head
+            "loss_mask_dice": 1,  # only for mask head
         },
         "losses": ["vfl", "boxes", "local"],  #  "masks" will be added if training with segment task
         "alpha": 0.75,
@@ -109,35 +109,6 @@ sizes_cfg = {
             "mask_dim": 256,
         },
     },
-    "s4": {
-        "HGNetv2": {
-            "name": "B0",
-            "return_idx": [0, 1, 2, 3],
-            "freeze_at": -1,
-            "freeze_norm": False,
-            "use_lab": True,
-        },
-        "HybridEncoder": {
-            "in_channels": [64, 256, 512, 1024],
-            "feat_strides": [4, 8, 16, 32],
-            "hidden_dim": 256,
-            "use_encoder_idx": [2],
-            "dim_feedforward": 1024,
-            "expansion": 0.5,
-            "depth_mult": 0.34,
-        },
-        "DFINETransformer": {
-            "feat_channels": [256, 256, 256, 256],
-            "feat_strides": [4, 8, 16, 32],
-            "hidden_dim": 256,
-            "num_levels": 4,
-            "num_layers": 3,
-            "reg_scale": 4,
-            "num_points": [3, 3, 6, 3],
-            "mask_dim": 256,
-        },
-        "pretrained_model_path": None,  # s4 has different architecture (4 levels vs 3), cannot use 's' weights
-    },
     "m": {
         "HGNetv2": {
             "name": "B2",
@@ -164,8 +135,7 @@ sizes_cfg = {
             "num_layers": 4,
             "reg_scale": 4,
             "num_points": [3, 6, 3],
-            "enable_mask_head": False,
-            "mask_dim": 256,
+            "mask_dim": 64,
         },
     },
     "l": {
@@ -239,4 +209,24 @@ def merge_configs(base, size_specific):
     return result
 
 
-models = {size: merge_configs(base_cfg, config) for size, config in sizes_cfg.items()}
+def to_high(s, ch):
+    c = sizes_cfg[s]
+    t = c["DFINETransformer"]
+    return merge_configs(c, {
+        "HGNetv2": {"return_idx": [0] + c["HGNetv2"]["return_idx"]},
+        "DFINETransformer": {
+            "mask_feat_channels": [ch] + [c["HybridEncoder"]["hidden_dim"]] * t["num_levels"],
+            "mask_feat_strides": [4] + t["feat_strides"],
+        },
+        "pretrained_model_path": f"weight/dfine_{s}.pth"
+    })
+
+high_cfg = {
+    "n_high": to_high("n", 64),
+    "s_high": to_high("s", 64),
+    "m_high": to_high("m", 96),
+    "l_high": to_high("l", 128),
+    "x_high": to_high("x", 128),
+}
+
+models = {s: merge_configs(base_cfg, c) for s, c in {**sizes_cfg, **high_cfg}.items()}

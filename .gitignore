@@ -15,6 +15,7 @@ events.out.*
 
 outputs/
 wandb/
+weight/
 
 # Distribution / packaging
 .Python

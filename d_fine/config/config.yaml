@@ -19,9 +19,6 @@ lrs:
   s:
     backbone_lr: 0.00006  # can setup up to 0.0002
     base_lr: 0.00025  # 0.0004
-  s4:
-    backbone_lr: 0.00006  # same as s
-    base_lr: 0.00025  # same as s
   m:
     backbone_lr: 0.00002  # 0.000025
     base_lr: 0.00015  # 0.00025

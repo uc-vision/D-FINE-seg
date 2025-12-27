@@ -21,10 +21,11 @@ from tqdm import tqdm
 
 from d_fine.core import dfine
 from d_fine.core import dist_utils
+from d_fine.core.types import ImageResult
 from d_fine.config import DecisionMetric, Task, TrainConfig
 from d_fine import utils as dl_utils
 from d_fine.infer.utils import postprocess_ground_truth, postprocess_predictions
-from d_fine.validator import Validator
+from d_fine.validation import Validator
 
 
 class ModelEMA:
@@ -35,7 +36,10 @@ class ModelEMA:
         self.model = deepcopy(student).eval()
         for param in self.model.parameters():
             param.requires_grad_(False)
-        self.ema_scheduler = lambda x: ema_momentum * (1 - math.exp(-x / 2000))
+        
+        def ema_scheduler(x):
+            return ema_momentum * (1 - math.exp(-x / 2000))
+        self.ema_scheduler = ema_scheduler
 
     def update(self, iters, student):
         # unwrap DDP if needed
@@ -99,7 +103,10 @@ class Trainer:
         self.train_loader, self.val_loader, self.test_loader = base_loader.build_dataloaders(
             distributed=self.distributed
         )
-        self.train_sampler = getattr(base_loader, "train_sampler", None)
+        
+        def get_sampler(loader):
+            return getattr(loader, "sampler", None)
+        self.train_sampler = get_sampler(self.train_loader)
         
         # Save class config to separate file for inference
         if self.is_main:
@@ -199,9 +206,9 @@ class Trainer:
         inputs: torch.Tensor,
         outputs: dict[str, torch.Tensor],
         orig_sizes: torch.Tensor,
-    ) -> list[dict[str, torch.Tensor]]:
+    ) -> list[ImageResult]:
         """
-        returns List with BS length. Each element is a dict {"labels", "boxes", "scores"}
+        returns list with BS length.
         """
         model_config = self.cfg.get_model_config(self.num_labels)
         return postprocess_predictions(
@@ -209,23 +216,27 @@ class Trainer:
             orig_sizes=orig_sizes,
             config=model_config,
             processed_size=tuple(inputs.shape[2:]),
-            include_all_for_map=True,
         )
 
-    def gt_postprocess(self, inputs, targets, orig_sizes):
+    def gt_postprocess(
+        self, 
+        inputs: torch.Tensor, 
+        targets: list[dict[str, torch.Tensor]], 
+        orig_sizes: torch.Tensor
+    ) -> list[ImageResult]:
         return postprocess_ground_truth(
             inputs=inputs,
             targets=targets,
             orig_sizes=orig_sizes,
-            keep_ratio=self.cfg.dataset.keep_ratio,
+            keep_ratio=self.cfg.dataset.img_config.keep_ratio,
         )
 
     @torch.no_grad()
     def get_preds_and_gt(
         self, val_loader: DataLoader
-    ) -> tuple[list[dict[str, torch.Tensor]], list[dict[str, torch.Tensor]], list[np.ndarray] | None]:
+    ) -> tuple[list[ImageResult], list[ImageResult], list[np.ndarray] | None]:
         """
-        Outputs gt and preds. Each is a List of dicts. 1 dict = 1 image.
+        Outputs gt and preds.
         Returns (all_gt, all_preds, eval_images)
         """
         all_gt, all_preds = [], []
@@ -234,7 +245,8 @@ class Trainer:
 
         model.eval()
         with torch.inference_mode():
-            for idx, (inputs, targets, img_paths) in enumerate(val_loader):
+            pbar = tqdm(val_loader, desc="Validation inference", leave=False) if self.is_main else val_loader
+            for idx, (inputs, targets, img_paths) in enumerate(pbar):
                 inputs = inputs.to(self.device)
                 
                 with autocast(str(self.device), enabled=self.cfg.amp_enabled, cache_enabled=True):
@@ -260,8 +272,8 @@ class Trainer:
                     )
 
                 for gt_instance, pred_instance in zip(gt, preds):
-                    all_preds.append(dl_utils.encode_sample_masks_to_rle(pred_instance))
-                    all_gt.append(dl_utils.encode_sample_masks_to_rle(gt_instance))
+                    all_preds.append(pred_instance)
+                    all_gt.append(gt_instance)
 
         return all_gt, all_preds, eval_images
 
@@ -344,9 +356,9 @@ class Trainer:
         self.early_stopping_steps = 0
         one_epoch_time = None
 
-        def optimizer_step(step_scheduler: bool):
+        def optimizer_step():
             """
-            Clip grads, optimizer step, scheduler step, zero grad, EMA model update
+            Clip grads, optimizer step, zero grad, EMA model update
             """
             nonlocal ema_iter
             if self.cfg.amp_enabled:
@@ -361,8 +373,6 @@ class Trainer:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.clip_max_norm)
                 self.optimizer.step()
 
-            if step_scheduler:
-                self.scheduler.step()
             self.optimizer.zero_grad()
 
             if self.ema_model:
@@ -423,7 +433,8 @@ class Trainer:
                     loss.backward()
 
                 if (batch_idx + 1) % b_accum_steps == 0:
-                    optimizer_step(step_scheduler=True)
+                    optimizer_step()
+                    self.scheduler.step()
 
                 losses.append(loss.item())
 
@@ -444,7 +455,7 @@ class Trainer:
             # Final update for any leftover gradients from an incomplete accumulation step
             b_accum_steps = max(self.cfg.b_accum_steps, 1)
             if (batch_idx + 1) % b_accum_steps != 0:
-                optimizer_step(step_scheduler=False)
+                optimizer_step()
 
             if self.cfg.use_wandb and self.is_main:
                 wandb.log({"lr": lr, "epoch": epoch})
@@ -634,7 +645,8 @@ def main(project_name: str, coco: Path | None, yolo: Path | None, overrides: tup
     override_list.extend(overrides)
     
     # Register custom resolvers
-    OmegaConf.register_new_resolver("lookup", lambda d, key: d[key], replace=True)
+    from operator import getitem
+    OmegaConf.register_new_resolver("lookup", getitem, replace=True)
     
     # Initialize Hydra and compose config with overrides
     import importlib.util

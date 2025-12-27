@@ -1,0 +1,77 @@
+{
+  "info": {
+    "year": 2025,
+    "version": "1.0",
+    "description": "COCO Dataset",
+    "date_created": "2025-12-24 05:01:15"
+  },
+  "licenses": [
+    {
+      "url": "https://www.apache.org/licenses/LICENSE-2.0",
+      "id": 0,
+      "name": "Apache License 2.0"
+    }
+  ],
+  "categories": [
+    {
+      "id": 0,
+      "name": "post",
+      "supercategory": "object",
+      "isthing": true
+    },
+    {
+      "id": 1,
+      "name": "trunk",
+      "supercategory": "object",
+      "isthing": true
+    }
+  ],
+  "images": [
+    {
+      "id": 2,
+      "width": 640,
+      "height": 640,
+      "file_name": "2_30414412.jpg",
+      "license": 0,
+      "snippet": null,
+      "database_id": 30414412,
+      "tags": [
+        "keep"
+      ]
+    },
+    {
+      "id": 4,
+      "width": 640,
+      "height": 640,
+      "file_name": "4_30401295.jpg",
+      "license": 0,
+      "snippet": null,
+      "database_id": 30401295,
+      "tags": [
+        "keep"
+      ]
+    }
+  ],
+  "annotations": [
+    {
+      "id": 3,
+      "image_id": 4,
+      "category_id": 1,
+      "segmentation": {
+        "size": [
+          636,
+          48
+        ],
+        "counts": "Rj17[b00f^O5X?Oj@l0[O_Oa?1^@X2o>j1]Oa0@b0@:^Oc0lDYIj8j6TGWIk8W7fFjHW9e7[F]Ha9]8hEfGR:V9K5K:D:D=A>VG^Ec7m;A>E4O0jKRC\\MOP4m<\\NeCa1X<nM[DQ2e;nM]DS2]5eLjNX1kKTOjNSOOb2V5YNjJ4W50gJHY12oNVOJ\\1OHi4^1QLhMR35ULMO:Z13RO?JK[4h1aKZM;a0R3HeLLM;Z15oN<OnNKc0W4[4eNZKWMLK=Y15oN:2nNJe0k20VMo4\\2cJhMNG=Z17lN8c0Cf1U7_O\\H^NOD=[19iN7g0BW1k7DeGiN0A>V1^OhNn0O7Q1]Ol0Y8JVGmN2_O>V1k1JVNc0b8]NkFV21kM`0V1l1JVN<]9a0`FZOl1KWN4n9;nEFm1LXNLa:4ZE5l1KYNGj:5PE:l1K[N]OU;9eD?k1K[NPOf;2fDn0[11Q;kN_D1l0o0U`0lN[]O:Yc0IiE"
+      },
+      "area": 11221.0,
+      "bbox": [
+        114.0,
+        1.0,
+        48.0,
+        636.0
+      ],
+      "iscrowd": 0
+    }
+  ]
+}

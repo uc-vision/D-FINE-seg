@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 
 from d_fine.config import TrainConfig
 from d_fine.dl.train import Trainer
-from d_fine.validator import Validator
+from d_fine.validation import Validator
 
 
 @click.command()

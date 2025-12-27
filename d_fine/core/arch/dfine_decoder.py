@@ -332,7 +332,7 @@ class MaskPixelDecoder(nn.Module):
         Fused mask features at 1/2 resolution. Shape: (B, out_ch, H/2, W/2)
     """
 
-    def __init__(self, in_chs, out_ch=256, use_enc=True):
+    def __init__(self, in_chs, out_ch=256, hidden_dim=256, use_enc=True):
         super().__init__()
         assert len(in_chs) >= 1 and in_chs[0] is not None, "Need C2 (stride 4) for 1/4 masks"
         self.use_enc = use_enc
@@ -344,7 +344,7 @@ class MaskPixelDecoder(nn.Module):
         # optional encoder projection T(.) to hidden dim (out_ch)
         if use_enc:
             self.enc_proj = nn.Conv2d(
-                in_chs[0], out_ch, 1, bias=False
+                hidden_dim, out_ch, 1, bias=False
             )  # expects enc already in out_ch or hidden_dim
             self.enc_bn = nn.BatchNorm2d(out_ch)
 
@@ -561,8 +561,13 @@ class DFINETransformer(nn.Module):
         layer_scale=1,
         enable_mask_head=False,
         mask_dim=256,
+        mask_feat_channels=None,
+        mask_feat_strides=None,
     ):
         super().__init__()
+        self.mask_feat_channels = mask_feat_channels or feat_channels
+        self.mask_feat_strides = mask_feat_strides or feat_strides
+
         assert len(feat_channels) <= num_levels
         assert len(feat_strides) == len(feat_channels)
 
@@ -641,7 +646,10 @@ class DFINETransformer(nn.Module):
         # segmentation head
         if self.enable_mask_head:
             self.pixel_decoder = MaskPixelDecoder(
-                in_chs=feat_channels, out_ch=self.mask_dim, use_enc=True
+                in_chs=self.mask_feat_channels,
+                out_ch=self.mask_dim,
+                hidden_dim=self.hidden_dim,
+                use_enc=True,
             )
             self.mask_head = MLP(self.hidden_dim, self.hidden_dim, self.mask_dim, num_layers=3)
 
@@ -939,8 +947,16 @@ class DFINETransformer(nn.Module):
         return torch.einsum("bqc,bchw->bqhw", mask_embed, mask_feat)
 
     def forward(self, all_feats, targets=None):
-        feats = all_feats[0]
-        inner_feats = all_feats[1]
+        if (
+            isinstance(all_feats, (list, tuple))
+            and len(all_feats) == 2
+            and isinstance(all_feats[0], (list, tuple))
+        ):
+            feats, inner_feats = all_feats
+        else:
+            feats = all_feats
+            inner_feats = all_feats
+
         enable_mask_head = self._should_do_masks(targets)
         # input projection and embedding
         memory, spatial_shapes = self._get_encoder_input(feats)

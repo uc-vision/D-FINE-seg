@@ -15,8 +15,8 @@ from tqdm import tqdm
 
 from d_fine.config import TrainConfig
 from d_fine.utils import process_boxes, process_masks
-from d_fine.validator import Validator
-from d_fine.visualization import visualize as visualize_pred
+from d_fine.validation import Validator
+from d_fine.validation.visualization import visualize as visualize_pred
 from d_fine.infer.onnx_model import ONNX_model
 from d_fine.infer.ov_model import OV_model
 from d_fine.infer.torch_model import Torch_model

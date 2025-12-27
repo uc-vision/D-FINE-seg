@@ -303,8 +303,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/02/21/aa0f434434c48490f91b65962b1ce863fdcce63febc166ca9fe9d706c2b6/torchmetrics-1.8.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/93/b1/db2941526ecddd84884132e2742a55c9311296a6a38627f9e2627f5ac889/torchvision-0.24.1-cp312-cp312-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/d0/30/dc54f88dd4a2b5dc8a0279bdd7270e735851848b762aeb1c1184ed1f6b14/tqdm-4.67.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c8/52/1f2df7e7d1be3d65ddc2936d820d4a3d9777a54f4204f5ca46b8513eff77/typer-0.20.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/d8/f9/a273c8b57c69ac1b90509ebda204972265fdc978fbbecc25980786f8c038/typer_slim-0.20.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/e4/5ebc1899d31d2b1601b32d21cfb4bba022ae6fce323d365f0448031b1660/typer-0.21.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/b4/84/e97abf10e4a699194ff07fd586ec7f4cf867d9d04bead559a65f9e7aff84/typer_slim-0.21.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c7/b0/003792df09decd6849a5e39c28b513c06e84436a54440380862b5aeff25d/tzdata-2025.3-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/6d/b9/4095b668ea3678bf6a0af005527f39de12fb026516fb3df17495a733b7f8/urllib3-2.6.2-py3-none-any.whl
@@ -1185,7 +1185,7 @@ packages:
 - pypi: ./
   name: d-fine-seg
   version: 0.1.0
-  sha256: f8ae47a02fe3e32e0d5caa30ac058b02f1fda6fbd4feeb416840f72559d2b886
+  sha256: 340d88c4b45ca007a5d80c582cf244ae5a7006dc0f635b2044893d0abe04ce4e
   requires_dist:
   - albumentations>=2.0.8
   - hydra-core>=1.3.2
@@ -1193,7 +1193,6 @@ packages:
   - matplotlib>=3.10.3
   - numpy>=2.1.1
   - omegaconf>=2.3.0
-  - opencv-python-headless>=4.10.0.84
   - pandas>=2.2.3
   - pillow>=11.1.0
   - pillow-heif>=0.18.0
@@ -4209,26 +4208,26 @@ packages:
   - pkg:pypi/triton?source=hash-mapping
   size: 223272287
   timestamp: 1763015432556
-- pypi: https://files.pythonhosted.org/packages/c8/52/1f2df7e7d1be3d65ddc2936d820d4a3d9777a54f4204f5ca46b8513eff77/typer-0.20.1-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/e1/e4/5ebc1899d31d2b1601b32d21cfb4bba022ae6fce323d365f0448031b1660/typer-0.21.0-py3-none-any.whl
   name: typer
-  version: 0.20.1
-  sha256: 4b3bde918a67c8e03d861aa02deca90a95bbac572e71b1b9be56ff49affdb5a8
+  version: 0.21.0
+  sha256: c79c01ca6b30af9fd48284058a7056ba0d3bf5cf10d0ff3d0c5b11b68c258ac6
   requires_dist:
   - click>=8.0.0
   - typing-extensions>=3.7.4.3
   - shellingham>=1.3.0
   - rich>=10.11.0
-  requires_python: '>=3.8'
-- pypi: https://files.pythonhosted.org/packages/d8/f9/a273c8b57c69ac1b90509ebda204972265fdc978fbbecc25980786f8c038/typer_slim-0.20.1-py3-none-any.whl
+  requires_python: '>=3.9'
+- pypi: https://files.pythonhosted.org/packages/b4/84/e97abf10e4a699194ff07fd586ec7f4cf867d9d04bead559a65f9e7aff84/typer_slim-0.21.0-py3-none-any.whl
   name: typer-slim
-  version: 0.20.1
-  sha256: 8e89c5dbaffe87a4f86f4c7a9e2f7059b5b68c66f558f298969d42ce34f10122
+  version: 0.21.0
+  sha256: 92aee2188ac6fc2b2924bd75bb61a340b78bd8cd51fd9735533ce5a856812c8e
   requires_dist:
   - click>=8.0.0
   - typing-extensions>=3.7.4.3
   - shellingham>=1.3.0 ; extra == 'standard'
   - rich>=10.11.0 ; extra == 'standard'
-  requires_python: '>=3.8'
+  requires_python: '>=3.9'
 - conda: https://conda.anaconda.org/conda-forge/noarch/typing-extensions-4.15.0-h396c80c_0.conda
   sha256: 7c2df5721c742c2a47b2c8f960e718c930031663ac1174da67c1ed5999f7938c
   md5: edd329d7d3a4ab45dcf905899a7a6115

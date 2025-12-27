@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-from pathlib import Path
-
+from functools import partial
 from torch.utils.data import DataLoader
-
+from torch.utils.data.distributed import DistributedSampler
 from loguru import logger
 
 from d_fine.core.dist_utils import is_main_process
 from d_fine.config import Mode
 from d_fine.dataset.base import BaseLoader
-from d_fine.dataset.loader_utils import build_dataloader_impl, collate_fn, train_collate_fn
-from d_fine.dataset.utils import get_splits
+from d_fine.dataset.loader_utils import collate_fn, train_collate_fn
 from d_fine.dataset.coco.coco_dataset import CocoDatasetConfig
+from d_fine.utils import seed_worker
 
 
 class CocoLoader(BaseLoader):
@@ -21,52 +20,36 @@ class CocoLoader(BaseLoader):
         batch_size: int,
         num_workers: int,
     ) -> None:
-        self.cfg = cfg
-        self.batch_size = batch_size
-        self.num_workers = num_workers
-        self.root_path = cfg.data_path
-        self.img_size = cfg.img_size
-        self.splits = get_splits(cfg.data_path)
-        self.multiscale_prob = cfg.augs.multiscale_prob
-        self.train_sampler = None
+        self.cfg, self.batch_size, self.num_workers = cfg, batch_size, num_workers
 
     def build_dataloaders(
         self, distributed: bool = False
     ) -> tuple[DataLoader, DataLoader, DataLoader | None]:
+        def get_ann_path(m: Mode) -> Path:
+            name = {
+                Mode.TRAIN: self.cfg.train_ann,
+                Mode.VAL: self.cfg.val_ann,
+                Mode.TEST: self.cfg.test_ann,
+            }[m]
+            # Handle both name only or full filename
+            filename = f"{name}.json" if not name.endswith(".json") else name
+            return self.cfg.data_path / "annotations" / filename
         
-        train_ds = self.cfg.create_dataset(
-            root_path=self.root_path,
-            split=self.splits["train"],
-            mode=Mode.TRAIN,
-        )
-        val_ds = self.cfg.create_dataset(
-            root_path=self.root_path,
-            split=self.splits["val"],
-            mode=Mode.VAL,
-        )
-
-        train_collate = lambda b: train_collate_fn(b, self.multiscale_prob)
-        train_loader, self.train_sampler = build_dataloader_impl(
-            train_ds, self.batch_size, self.num_workers, train_collate, shuffle=True, distributed=distributed
-        )
-        val_loader, _ = build_dataloader_impl(
-            val_ds, self.batch_size, self.num_workers, collate_fn, shuffle=False, distributed=distributed
-        )
-
-        test_loader = None
-        if len(self.splits["test"]):
-            test_ds = self.cfg.create_dataset(
-                root_path=self.root_path,
-                split=self.splits["test"],
-                mode=Mode.TEST,
+        def build(m, collate, shuffle):
+            p = get_ann_path(m)
+            if m == Mode.TEST and not p.exists(): return None
+            ds = self.cfg.create_dataset(self.cfg.data_path, p, m)
+            sampler = DistributedSampler(ds, shuffle=shuffle, drop_last=False) if distributed else None
+            return DataLoader(
+                ds, self.batch_size, shuffle=shuffle if not distributed else False, sampler=sampler,
+                num_workers=self.num_workers, collate_fn=collate, worker_init_fn=seed_worker,
+                pin_memory=False, prefetch_factor=2 if self.num_workers > 0 else None
             )
-            test_loader, _ = build_dataloader_impl(
-                test_ds, self.batch_size, self.num_workers, collate_fn, shuffle=False, distributed=distributed
-            )
+
+        train = build(Mode.TRAIN, partial(train_collate_fn, multiscale_prob=self.cfg.augs.multiscale_prob), True)
+        val = build(Mode.VAL, collate_fn, False)
+        test = build(Mode.TEST, collate_fn, False)
 
         if is_main_process():
-            logger.info(
-                f"Images in train: {len(train_ds)}, val: {len(val_ds)}, test: {len(test_ds) if len(self.splits['test']) else 0}"
-            )
-        return train_loader, val_loader, test_loader
-
+            logger.info(f"Images in train: {len(train.dataset)}, val: {len(val.dataset)}")
+        return train, val, test
