@@ -7,6 +7,76 @@ from d_fine.core.types import ImageResult
 from d_fine.config import ModelConfig
 from image_detection.annotation.coco import InstanceMask
 
+def letterbox(
+    im: np.ndarray,
+    new_shape: tuple[int, int] = (640, 640),
+    color: tuple[int, int, int] = (114, 114, 114),
+    auto: bool = True,
+    scale_fill: bool = False,
+    scaleup: bool = True,
+    stride: int = 32,
+) -> tuple[np.ndarray, tuple[float, float], tuple[float, float]]:
+    """Resize and pad image while meeting stride-multiple constraints."""
+    shape = im.shape[:2]  # current shape [height, width]
+    if isinstance(new_shape, int):
+        new_shape = (new_shape, new_shape)
+
+    # Scale ratio (new / old)
+    r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
+    if not scaleup:  # only scale down, do not scale up (for better val mAP)
+        r = min(r, 1.0)
+
+    # Compute padding
+    ratio = r, r  # width, height ratios
+    new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
+    dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
+    if auto:  # minimum rectangle
+        dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
+    elif scale_fill:  # stretch
+        dw, dh = 0.0, 0.0
+        new_unpad = (new_shape[1], new_shape[0])
+        ratio = new_shape[1] / shape[1], new_shape[0] / shape[0]  # width, height ratios
+
+    dw /= 2  # divide padding into 2 sides
+    dh /= 2
+
+    if shape[::-1] != new_unpad:  # resize
+        im = cv2.resize(im, new_unpad, interpolation=cv2.INTER_AREA)
+    top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
+    left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
+    im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
+    return im, ratio, (dw, dh)
+
+def compute_nearest_size(shape: tuple[int, int], target_size: int, stride: int = 32) -> list[int]:
+    """Get nearest size that is divisible by stride."""
+    scale = target_size / max(shape)
+    new_shape = [int(round(dim * scale)) for dim in shape]
+    return [max(stride, int(np.ceil(dim / stride) * stride)) for dim in new_shape]
+
+def preprocess(
+    img: np.ndarray, 
+    target_size: tuple[int, int], 
+    keep_ratio: bool, 
+    rect: bool, 
+    stride: int = 32,
+    dtype: np.dtype = np.float32
+) -> tuple[torch.Tensor, tuple[int, int]]:
+    """Uniform preprocessing for all model types."""
+    orig_size = (img.shape[0], img.shape[1])
+    
+    if not keep_ratio:
+        img = cv2.resize(img, (target_size[1], target_size[0]), interpolation=cv2.INTER_AREA)
+    elif rect:
+        h_t, w_t = compute_nearest_size(img.shape[:2], max(target_size))
+        img = letterbox(img, (h_t, w_t), stride=stride, auto=False)[0]
+    else:
+        img = letterbox(img, target_size, stride=stride, auto=False)[0]
+
+    img = img.transpose(2, 0, 1)  # HWC to CHW
+    img = np.ascontiguousarray(img, dtype=dtype)
+    img = torch.from_numpy(img) / 255.0
+    return img, orig_size
+
 def scale_boxes(boxes: np.ndarray, orig_size: tuple[float, float], proc_size: tuple[float, float]) -> np.ndarray:
     """Scale boxes from proc_size to orig_size without ratio keeping."""
     h0, w0 = orig_size

@@ -7,13 +7,13 @@ from loguru import logger
 
 from d_fine.core.dist_utils import is_main_process
 from d_fine.config import Mode
-from d_fine.dataset.base import BaseLoader
+from d_fine.dataset.base import Loader
 from d_fine.dataset.loader_utils import collate_fn, train_collate_fn
 from d_fine.dataset.coco.coco_dataset import CocoDatasetConfig
 from d_fine.utils import seed_worker
 
 
-class CocoLoader(BaseLoader):
+class CocoLoader(Loader):
     def __init__(
         self,
         cfg: CocoDatasetConfig,
@@ -21,6 +21,15 @@ class CocoLoader(BaseLoader):
         num_workers: int,
     ) -> None:
         self.cfg, self.batch_size, self.num_workers = cfg, batch_size, num_workers
+        self._dataset = None
+
+    @property
+    def label_to_name(self) -> dict[int, str]:
+        if self._dataset is None:
+            # Use training annotation by default to get all labels
+            p = self.cfg.data_path / "annotations" / (f"{self.cfg.train_ann}.json" if not self.cfg.train_ann.endswith(".json") else self.cfg.train_ann)
+            self._dataset = self.cfg.create_dataset(self.cfg.data_path, p, Mode.TRAIN)
+        return self._dataset.label_to_name
 
     def build_dataloaders(
         self, distributed: bool = False

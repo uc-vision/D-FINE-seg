@@ -2,6 +2,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import numpy as np
 
+@dataclass(frozen=True)
+class ValidationConfig:
+    conf_threshold: float = 0.5
+    iou_threshold: float = 0.5
+    label_to_name: dict[int, str] = field(default_factory=dict)
+
+
 @dataclass
 class PerClassMetrics:
     tps: int = 0

@@ -31,6 +31,7 @@ class RawSample(BaseModel, frozen=True):
     targets: Annotated[np.ndarray, numpy_types.Dynamic(Float32, "N 5")]
     orig_size: Annotated[torch.Tensor, torch_types.Dynamic(Int64, "2")]
     id_map: Annotated[np.ndarray, numpy_types.Dynamic(UInt16, "H W")]
+    path: str
 
     def prepare_for_transform(self) -> dict:
         """Extract data for Albumentations transform in a uniform way."""

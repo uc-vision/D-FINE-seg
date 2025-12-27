@@ -15,7 +15,7 @@ from loguru import logger
 
 from d_fine.core.dist_utils import is_main_process
 from d_fine.config import DatasetConfig, Mode, Task
-from d_fine.dataset.base import BaseDataset
+from d_fine.dataset.base import Dataset
 from d_fine.dataset.augmentations import init_augs
 from d_fine.config import ImageConfig
 from d_fine.dataset.mask_types import CompactMasks, RawSample, ProcessedSample
@@ -66,7 +66,7 @@ class CocoDatasetConfig(DatasetConfig, frozen=True):
         )
 
 
-class CocoDataset(BaseDataset):
+class CocoDataset(Dataset):
     def __init__(
         self,
         config: CocoDatasetConfig,
@@ -129,10 +129,10 @@ class CocoDataset(BaseDataset):
         """Load data from COCO format annotations."""
         coco_image = self.coco_dataset.images[idx]
         image_path = self.root_path / "images" / coco_image.file_name
-        image = cv2.imread(str(image_path))
-        assert image is not None, f"Image wasn't loaded: {image_path}"
-
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        from d_fine import utils as dl_utils
+        image = dl_utils.load_image(image_path)
+        
         height, width = image.shape[:2]
         orig_size = torch.tensor([height, width])
 
@@ -160,7 +160,8 @@ class CocoDataset(BaseDataset):
             image=image, 
             targets=np.array(targets_list, dtype=np.float32).reshape(-1, 5), 
             orig_size=orig_size, 
-            id_map=id_map
+            id_map=id_map,
+            path=coco_image.file_name
         )
 
     def _load_mosaic(self, idx: int) -> ProcessedSample:
@@ -226,7 +227,7 @@ class CocoDataset(BaseDataset):
                 sample = sample.model_copy(update={"targets": np.zeros((0, 5))}) # Simplified
 
             processed = self._transform_and_format(sample)
-            image_path, orig_size = Path(self.coco_dataset.images[actual_idx].file_name), sample.orig_size
+            image_path, orig_size = Path(sample.path), sample.orig_size
 
         norm_boxes = torch.tensor(
             abs_xyxy_to_norm_xywh(processed.boxes.numpy(), processed.image.shape[2], processed.image.shape[1]), 

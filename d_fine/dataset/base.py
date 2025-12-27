@@ -4,12 +4,12 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset as TorchDataset
 
 from d_fine.config import Mode
 
 
-class BaseDataset(Dataset, ABC):
+class Dataset(TorchDataset, ABC):
     @property
     @abstractmethod
     def mode(self) -> Mode:
@@ -36,27 +36,24 @@ class BaseDataset(Dataset, ABC):
         return len(self.label_to_name)
 
     @abstractmethod
-    def get_data(
-        self, idx: int
-    ) -> tuple[np.ndarray, np.ndarray, torch.Tensor, list[np.ndarray]]:
-        """Load and return raw data for a given index.
-        
-        Args:
-            idx: Dataset index
-            
-        Returns:
-            Tuple containing:
-                - image: RGB image array of shape (H, W, 3), dtype uint8
-                - targets: Bounding box array of shape (N, 5) with columns [class_id, x1, y1, x2, y2]
-                  in absolute coordinates, dtype float32
-                - orig_size: Tensor of shape (2,) containing [height, width], dtype int
-                - masks: List of mask arrays, each of shape (H, W), dtype uint8
-        """
+    def get_data(self, idx: int) -> RawSample:
+        """Load and return raw data for a given index."""
         pass
 
 
 
-class BaseLoader(ABC):
+class Loader(ABC):
+    @property
+    @abstractmethod
+    def label_to_name(self) -> dict[int, str]:
+        """Return mapping from class ID to class name."""
+        pass
+
+    @property
+    def num_classes(self) -> int:
+        """Return the number of classes."""
+        return len(self.label_to_name)
+
     @abstractmethod
     def build_dataloaders(
         self, distributed: bool = False

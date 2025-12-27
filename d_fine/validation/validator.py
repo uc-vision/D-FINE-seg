@@ -9,7 +9,7 @@ from loguru import logger
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
 from d_fine.core.types import ImageResult
-from .metrics import EvaluationMetrics, PerClassMetrics
+from .metrics import EvaluationMetrics, PerClassMetrics, ValidationConfig
 from .confusion_matrix import ConfusionMatrix
 from .mask_ap import SparseMaskAP
 from .matcher import GreedyMatcher, box_iou_fn, mask_iou_fn
@@ -23,28 +23,25 @@ logging.getLogger("faster_coco_eval").setLevel(logging.WARNING)
 class Validator:
     def __init__(
         self,
-        gt: list[ImageResult],
-        preds: list[ImageResult],
-        label_to_name: dict[int, str],
-        conf_thresh: float = 0.5,
-        iou_thresh: float = 0.5,
+        gt: Sequence[ImageResult],
+        preds: Sequence[ImageResult],
+        config: ValidationConfig,
         mask_batch_size: int = 1000,
     ) -> None:
         """
         Args:
             gt: List of ground truth samples
             preds: List of predicted samples
-            label_to_name: Mapping from class ID to name
-            conf_thresh: Confidence threshold for predictions
-            iou_thresh: IoU threshold for matching
+            config: Validation configuration (thresholds, labels)
             mask_batch_size: Batch size for mask metric computation
         """
         self.gt = gt
         self.preds = preds
-        self.conf_thresh = conf_thresh
-        self.iou_thresh = iou_thresh
+        self.config = config
+        self.conf_thresh = config.conf_threshold
+        self.iou_thresh = config.iou_threshold
         self.thresholds = np.arange(0.2, 1.0, 0.05)
-        self.label_to_name = label_to_name
+        self.label_to_name = config.label_to_name
         self.mask_batch_size = mask_batch_size
 
         # Use faster_coco_eval backend for numpy 2.x compatibility
@@ -69,8 +66,8 @@ class Validator:
             class_to_idx={cls_id: idx for idx, cls_id in enumerate(all_classes)}
         )
         self.sparse_mask_ap = SparseMaskAP()
-        self.matcher = GreedyMatcher(iou_threshold=iou_thresh)
-        self.plotter = ValidationPlotter(self.thresholds, label_to_name)
+        self.matcher = GreedyMatcher(iou_threshold=self.iou_thresh)
+        self.plotter = ValidationPlotter(self.thresholds, self.label_to_name)
 
     def compute_metrics(self, extended=False, ignore_masks=False) -> EvaluationMetrics:
         self.torch_metrics = self.torch_metric.compute()

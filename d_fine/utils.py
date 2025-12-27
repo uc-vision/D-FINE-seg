@@ -4,7 +4,7 @@ import math
 import random
 import time
 from pathlib import Path
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 import datetime
 
 import cv2
@@ -15,6 +15,29 @@ from torch import Tensor
 from image_detection.annotation.coco import InstanceMask
 from .core.dist_utils import is_main_process, get_rank, get_world_size, reduce_dict
 from .core.logging import SmoothedValue, MetricLogger
+
+def load_image(path: Path) -> np.ndarray:
+    """Load image from path and return as RGB numpy array."""
+    img = cv2.imread(str(path))
+    if img is None:
+        raise FileNotFoundError(f"Failed to load image: {path}")
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+def save_image(path: Path, img: np.ndarray) -> None:
+    """Save RGB image as BGR to path."""
+    cv2.imwrite(str(path), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+
+def load_video(path: Path) -> Iterator[np.ndarray]:
+    """Iterate over video frames as RGB numpy arrays."""
+    cap = cv2.VideoCapture(str(path))
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    finally:
+        cap.release()
 
 def box_candidates(box1, box2, wh_thr=2, ar_thr=100, area_thr=0.1, eps=1e-16):
     w1, h1 = box1[2] - box1[0], box1[3] - box1[1]
@@ -140,11 +163,16 @@ class LetterboxRect:
         return res
 
 def draw_mask(image, mask, color=(255, 0, 0), alpha=0.5):
+    """Draw a mask on an image. Default color is Red (RGB)."""
     mask = mask.astype(bool)
     image[mask] = image[mask] * (1 - alpha) + np.array(color) * alpha
     return image.astype(np.uint8)
 
-def vis_one_box(img, box, label, score: float | None = None, label_to_name: dict[int, str] | None = None, color=(0, 255, 0), mode="gt"):
+def vis_one_box(img, box, label, score: float | None = None, label_to_name: dict[int, str] | None = None, color=None, mode="gt"):
+    """Visualize a single bounding box. Default colors for RGB: GT=Green, Pred=Red."""
+    if color is None:
+        color = (0, 255, 0) if mode == "gt" else (255, 0, 0)
+    
     x1, y1, x2, y2 = map(int, box)
     cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
     name = label_to_name[label] if label_to_name else str(label)
@@ -203,20 +231,19 @@ def visualize(img_paths, targets, results, label_to_name, **kwargs):
             p = Path(img_path)
             if not p.is_absolute() and kwargs.get("dataset_path"):
                 p = Path(kwargs["dataset_path"]) / p
-            img = cv2.imread(str(p))
-            if img is not None: img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = load_image(p)
         elif torch.is_tensor(img_path):
             img = img_path.permute(1, 2, 0).cpu().numpy()
             img = (img * np.array([0.229, 0.224, 0.225]) + np.array([0.485, 0.456, 0.406])) * 255
             img = img.astype(np.uint8).copy()
         if img is None: continue
-        img = cv2.cvtColor(img.copy(), cv2.COLOR_RGB2BGR)
+        
         for box, label in zip(targets[i]["boxes"], targets[i]["labels"]):
-            vis_one_box(img, box.numpy(), label.item(), None, label_to_name, color=(0, 255, 0))
+            vis_one_box(img, box.numpy(), label.item(), None, label_to_name, mode="gt")
         res = results[i]
         if "boxes" in res:
             for box, label, score in zip(res["boxes"], res["labels"], res["scores"]):
-                vis_one_box(img, box.numpy(), label.item(), score.item(), label_to_name, color=(0, 0, 255))
+                vis_one_box(img, box.numpy(), label.item(), score.item(), label_to_name, mode="pred")
         vis_images.append(img)
     return vis_images
 

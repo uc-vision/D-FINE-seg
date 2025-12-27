@@ -17,6 +17,29 @@ def make_random_instance_mask(label=0, score=1.0, shape=(10, 10), offset=(0, 0))
         mask[0, 0] = True
     return InstanceMask(mask=mask, label=label, offset=offset, score=score)
 
+def jitter_mask(m: InstanceMask, jitter: int = 3) -> InstanceMask:
+    """Shift an instance mask by a random amount."""
+
+    dx, dy = np.random.randint(-jitter, jitter + 1, size=2).tolist()
+    return InstanceMask(
+        mask=m.mask, 
+        label=m.label, 
+        offset=(m.offset[0] + dx, m.offset[1] + dy), 
+        score=0.99
+    )
+
+def jitter_results(results: list[ImageResult], jitter: int = 3) -> list[ImageResult]:
+    """Shift every instance in a list of ImageResults by a random amount."""
+    return [
+        ImageResult(
+            labels=res.labels,
+            boxes=stack_boxes(jittered_masks := [jitter_mask(m, jitter) for m in res.masks]),
+            img_size=res.img_size,
+            scores=torch.ones(len(res.labels)) * 0.99,
+            masks=jittered_masks
+        ) for res in results
+    ]
+
 def find_test_datasets() -> list[Path]:
     """Locate all test datasets in the test_data folder."""
     data_dir = Path(__file__).parent / "test_data"

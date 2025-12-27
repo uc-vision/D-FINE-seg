@@ -13,7 +13,7 @@ from albumentations.pytorch import ToTensorV2
 from loguru import logger
 
 from d_fine.core.dist_utils import is_main_process
-from d_fine.dataset.base import BaseDataset
+from d_fine.dataset.base import Dataset
 from d_fine.config import ImageConfig, Task
 from d_fine.dataset.config import AugConfig
 from d_fine.dataset.augmentations import init_augs
@@ -111,7 +111,7 @@ class YoloDatasetConfig(DatasetConfig, frozen=True):
         )
 
 
-class YoloDataset(BaseDataset):
+class YoloDataset(Dataset):
     def __init__(
         self,
         config: YoloDatasetConfig,
@@ -153,10 +153,10 @@ class YoloDataset(BaseDataset):
         """Load data from YOLO format labels."""
         image_filename = self.split[idx]
         image_path = self.root_path / "images" / image_filename
-        image = cv2.imread(str(image_path))
-        assert image is not None, f"Image wasn't loaded: {image_path}"
-
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        from d_fine import utils as dl_utils
+        image = dl_utils.load_image(image_path)
+        
         height, width, _ = image.shape
         orig_size = torch.tensor([height, width])
 

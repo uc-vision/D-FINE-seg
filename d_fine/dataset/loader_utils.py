@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from typing import Any
-from d_fine.dataset.base import BaseDataset
+from d_fine.dataset.base import Dataset
 from d_fine.dataset.mask_types import CompactMasks
 from d_fine.utils import vis_one_box
 
@@ -68,7 +68,7 @@ def train_collate_fn(batch: list[Any], multiscale_prob: float) -> tuple[torch.Te
 def log_debug_images_from_batch(
     images: torch.Tensor,
     targets: list[dict],
-    dataset: BaseDataset,
+    dataset: Dataset,
     wandb_logger,
     num_images: int = 5,
 ) -> None:

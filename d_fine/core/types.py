@@ -47,3 +47,35 @@ class ImageResult:
             scores=self.scores.to(device),
             masks=[m.to(device) for m in self.masks]
         )
+
+    def nms(self, iou_threshold: float = 0.5) -> ImageResult:
+        """Apply non-maximum suppression to filter detections."""
+        if len(self.labels) == 0:
+            return self
+
+        from torchvision.ops import nms
+        
+        # Perform NMS per class
+        keep_indices = []
+        unique_labels = self.labels.unique()
+        
+        for label in unique_labels:
+            cls_mask = self.labels == label
+            cls_indices = torch.where(cls_mask)[0]
+            cls_boxes = self.boxes[cls_mask]
+            cls_scores = self.scores[cls_mask]
+            
+            cls_keep = nms(cls_boxes, cls_scores, iou_threshold)
+            keep_indices.append(cls_indices[cls_keep])
+            
+        keep = torch.cat(keep_indices)
+        # Sort by score to keep things predictable
+        keep = keep[self.scores[keep].argsort(descending=True)]
+        
+        return ImageResult(
+            labels=self.labels[keep],
+            boxes=self.boxes[keep],
+            img_size=self.img_size,
+            scores=self.scores[keep],
+            masks=[self.masks[i] for i in keep.tolist()] if self.masks else []
+        )

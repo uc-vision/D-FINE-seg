@@ -7,9 +7,48 @@ from d_fine.core.types import ImageResult
 from .metrics import PerClassMetrics
 from .confusion_matrix import ConfusionMatrix
 from image_detection.annotation import InstanceMask, stack_boxes
+from d_fine.dataset.mask_types import RawSample
 
 if TYPE_CHECKING:
     from image_detection.annotation.coco import CocoDataset
+
+def raw_sample_to_image_result(sample: RawSample) -> ImageResult:
+    """Convert RawSample into ImageResult ground truth."""
+    h, w = sample.image.shape[:2]
+    n = len(sample.targets)
+    
+    masks = []
+    if n > 0:
+        for i in range(n):
+            mask_bool = sample.id_map == (i + 1)
+            if not mask_bool.any():
+                continue
+            
+            label, x1, y1, x2, y2 = sample.targets[i]
+            ix1, iy1, ix2, iy2 = int(x1), int(y1), int(x2), int(y2)
+            
+            # Ensure indices are within bounds
+            ix1, iy1 = max(0, ix1), max(0, iy1)
+            ix2, iy2 = min(w, ix2), min(h, iy2)
+            
+            if ix2 <= ix1 or iy2 <= iy1:
+                continue
+                
+            mask_crop = mask_bool[iy1:iy2, ix1:ix2]
+            masks.append(InstanceMask(
+                mask=torch.from_numpy(mask_crop).bool(),
+                label=int(label),
+                offset=(ix1, iy1),
+                score=1.0
+            ))
+
+    return ImageResult(
+        labels=torch.from_numpy(sample.targets[:, 0]).long(),
+        boxes=torch.from_numpy(sample.targets[:, 1:]).float(),
+        img_size=(h, w),
+        scores=torch.ones(n),
+        masks=masks
+    )
 
 @dataclass(frozen=True)
 class Match:

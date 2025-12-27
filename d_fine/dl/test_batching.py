@@ -23,20 +23,16 @@ def main(project_name: str, base_path: Path, exp_name: str | None) -> None:
     except FileNotFoundError as e:
         raise click.BadParameter(str(e))
     
-    temp_loader = train_config.dataset.create_loader(
+    loader = train_config.dataset.create_loader(
         batch_size=1, num_workers=0
     )
-    _, val_loader_temp, _ = temp_loader.build_dataloaders(distributed=False)
-    num_classes = val_loader_temp.dataset.num_classes
-    model_config = train_config.get_model_config(num_classes)
+    _, val_loader_temp, _ = loader.build_dataloaders(distributed=False)
+    
+    torch_model = Torch_model.from_train_config(train_config)
 
-    torch_model = Torch_model(
-        train_config=train_config,
-        model_config=model_config,
-    )
-
+    from d_fine import utils as dl_utils
     img_folder = train_config.dataset.data_path / "images"
-    img = cv2.imread(str(img_folder.iterdir().__next__()))
+    img = dl_utils.load_image(next(img_folder.iterdir()))
 
     res = {"bs": [], "throughput": [], "latency_per_image": []}
     images = 512
@@ -50,7 +46,10 @@ def main(project_name: str, base_path: Path, exp_name: str | None) -> None:
 
         t0 = time.perf_counter()
         for _ in tqdm(range(images // bs), desc=f"Batch size {bs}"):
-            _ = torch_model(imgs)
+            if bs > 1:
+                _ = torch_model.predict_batch(imgs)
+            else:
+                _ = torch_model(imgs)
         t1 = time.perf_counter()
 
         latency_per_image = (t1 - t0) * 1000 / images

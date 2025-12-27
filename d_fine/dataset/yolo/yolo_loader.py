@@ -8,7 +8,7 @@ from loguru import logger
 
 from d_fine.core.dist_utils import is_main_process
 from d_fine.config import Mode
-from d_fine.dataset.base import BaseLoader
+from d_fine.dataset.base import Loader
 from d_fine.dataset.loader_utils import collate_fn, train_collate_fn
 from d_fine.dataset.yolo.yolo_dataset import YoloDatasetConfig
 from d_fine.utils import seed_worker
@@ -26,7 +26,7 @@ def get_splits(root_path: Path) -> dict[str, list[str]]:
     return splits
 
 
-class YoloLoader(BaseLoader):
+class YoloLoader(Loader):
     def __init__(
         self,
         cfg: YoloDatasetConfig,

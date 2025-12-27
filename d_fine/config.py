@@ -157,6 +157,7 @@ class ImageConfig(BaseModel, frozen=True):
 
 class ModelConfig(BaseModel, frozen=True):
     """Common model inference configuration."""
+    model_name: str
     n_outputs: int
     input_width: int
     input_height: int
@@ -306,6 +307,7 @@ class TrainConfig(BaseModel, frozen=True):
             ModelConfig instance
         """
         return ModelConfig(
+            model_name=self.model_name,
             n_outputs=num_classes,
             input_width=self.img_size[1],
             input_height=self.img_size[0],

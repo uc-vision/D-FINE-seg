@@ -1,11 +1,14 @@
 from pathlib import Path
 from shutil import rmtree
 
+import cv2
 import click
-
+from loguru import logger
+from tqdm import tqdm
 from d_fine.config import TrainConfig
 from d_fine.infer.torch_model import Torch_model
-from d_fine.validation.visualization import figure_input_type, run_images, run_videos
+from d_fine.validation.visualization import visualize
+from d_fine import utils as dl_utils
 
 
 @click.command()
@@ -17,38 +20,48 @@ def main(project_name: str, base_path: Path, exp_name: str | None) -> None:
     
     Loads config from saved training experiment.
     """
-    # Load saved config using helper method
     try:
         train_config = TrainConfig.load_from_experiment(base_path, exp_name)
     except FileNotFoundError as e:
         raise click.BadParameter(str(e))
     
-    temp_loader = train_config.dataset.create_loader(
+    loader = train_config.dataset.create_loader(
         batch_size=1, num_workers=0
     )
-    _, val_loader_temp, _ = temp_loader.build_dataloaders(distributed=False)
+    _, val_loader_temp, _ = loader.build_dataloaders(distributed=False)
 
-    model_config = train_config.get_model_config(val_loader_temp.dataset.num_classes)
-    torch_model = Torch_model(
-        train_config=train_config,
-        model_config=model_config,
-    )
+    torch_model = Torch_model.from_train_config(train_config)
 
-    data_type = figure_input_type(train_config.dataset.path_to_test_data)
+    data_path = train_config.dataset.path_to_test_data
+    if not data_path.exists():
+        logger.error(f"Test data path does not exist: {data_path}")
+        return
 
-    if train_config.paths.infer_path.exists():
-        rmtree(train_config.paths.infer_path)
+    output_path = train_config.paths.infer_path
+    if output_path.exists():
+        rmtree(output_path)
+    output_path.mkdir(parents=True)
 
-    run_fn = run_images if data_type == "image" else run_videos
-    run_fn(
-        torch_model,
-        train_config.dataset.path_to_test_data,
-        train_config.paths.infer_path,
-        label_to_name=val_loader_temp.dataset.label_to_name,
-        to_crop=train_config.infer.to_crop,
-        paddings=train_config.infer.paddings,
-        conf_thresh=train_config.conf_thresh,
-    )
+    img_extensions = {".jpg", ".jpeg", ".png", ".bmp"}
+    vid_extensions = {".mp4", ".avi", ".mov", ".mkv"}
+
+    label_to_name = loader.label_to_name
+
+    for f in tqdm(list(data_path.iterdir()), desc="Inference"):
+        if f.name.startswith("."): continue
+        
+        if f.suffix.lower() in img_extensions:
+            img = dl_utils.load_image(f)
+            res = torch_model(img)
+            vis_img = visualize(img, res, label_to_name)
+            dl_utils.save_image(output_path / f.name, vis_img)
+            
+        elif f.suffix.lower() in vid_extensions:
+            for frame_idx, frame in enumerate(dl_utils.load_video(f)):
+                res = torch_model(frame)
+                vis_img = visualize(frame, res, label_to_name)
+                out_name = f"{f.stem}_frame_{frame_idx:06d}.jpg"
+                dl_utils.save_image(output_path / out_name, vis_img)
 
 
 if __name__ == "__main__":

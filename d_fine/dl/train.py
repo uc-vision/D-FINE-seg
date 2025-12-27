@@ -25,7 +25,7 @@ from d_fine.core.types import ImageResult
 from d_fine.config import DecisionMetric, Task, TrainConfig
 from d_fine import utils as dl_utils
 from d_fine.infer.utils import postprocess_ground_truth, postprocess_predictions
-from d_fine.validation import Validator
+from d_fine.validation import Validator, ValidationConfig
 
 
 class ModelEMA:
@@ -280,12 +280,11 @@ class Trainer:
     def evaluate(
         self,
         val_loader: DataLoader,
-        conf_thresh: float,
-        iou_thresh: float,
-        path_to_save: Path,
+        val_cfg: ValidationConfig,
+        path_to_save: Path | None,
         extended: bool,
-        mode: str = None,
-    ) -> dict[str, float]:
+        mode: str | None = None,
+    ) -> EvaluationMetrics | None:
         # All ranks perform inference on their portion of the data
         local_gt, local_preds, eval_images = self.get_preds_and_gt(val_loader=val_loader)
 
@@ -311,13 +310,11 @@ class Trainer:
             validator = Validator(
                 all_gt,
                 all_preds,
-                conf_thresh=conf_thresh,
-                iou_thresh=iou_thresh,
-                label_to_name=self.train_loader.dataset.label_to_name,
+                config=val_cfg,
                 mask_batch_size=self.cfg.mask_batch_size,
             )
             metrics = validator.compute_metrics(extended=extended)
-            if path_to_save:  # val and test
+            if path_to_save and mode:  # val and test
                 validator.save_plots(path_to_save / "plots" / mode)
 
         # Synchronize before returning so all ranks wait for metrics computation
@@ -325,7 +322,7 @@ class Trainer:
             dist_utils.synchronize()
         return metrics
 
-    def save_model(self, metrics, best_metric):
+    def save_model(self, metrics: EvaluationMetrics, best_metric: float) -> float:
         model_to_save = self.model
         if self.ema_model:
             model_to_save = self.ema_model.model
@@ -337,7 +334,8 @@ class Trainer:
         torch.save(model_to_save.state_dict(), self.cfg.paths.path_to_save / "last.pt")
 
         # mean from chosen metrics
-        decision_metric = np.mean([metrics[metric.value] for metric in self.cfg.decision_metrics])
+        metrics_dict = metrics.to_dict()
+        decision_metric = np.mean([metrics_dict[metric.value] for metric in self.cfg.decision_metrics])
 
         if decision_metric > best_metric:
             best_metric = decision_metric
@@ -461,10 +459,14 @@ class Trainer:
                 wandb.log({"lr": lr, "epoch": epoch})
 
             # All ranks run evaluation (inference is distributed, metrics computed on rank 0)
+            val_cfg = ValidationConfig(
+                conf_threshold=self.cfg.conf_thresh,
+                iou_threshold=self.cfg.iou_thresh,
+                label_to_name=self.train_loader.dataset.label_to_name
+            )
             metrics = self.evaluate(
                 val_loader=self.val_loader,
-                conf_thresh=self.cfg.conf_thresh,
-                iou_thresh=self.cfg.iou_thresh,
+                val_cfg=val_cfg,
                 extended=False,
                 path_to_save=None,
             )
@@ -579,32 +581,38 @@ def run_training(train_config: TrainConfig) -> None:
                 trainer.test_loader = test_loader_eval
                 trainer.distributed = False  # turn off DDP inside evaluate
 
+            val_cfg = ValidationConfig(
+                conf_threshold=trainer.cfg.conf_thresh,
+                iou_threshold=trainer.cfg.iou_thresh,
+                label_to_name=val_loader_temp.dataset.label_to_name
+            )
             val_metrics = trainer.evaluate(
                 val_loader=trainer.val_loader,
-                conf_thresh=trainer.cfg.conf_thresh,
-                iou_thresh=trainer.cfg.iou_thresh,
+                val_cfg=val_cfg,
                 path_to_save=trainer.cfg.paths.path_to_save,
                 extended=True,
                 mode="val",
             )
             if train_config.use_wandb:
-                dl_utils.wandb_logger(None, val_metrics, epoch=train_config.epochs + 1, mode="val")
+                dl_utils.wandb_logger(None, val_metrics.to_dict(), epoch=train_config.epochs + 1, mode="val")
 
-            test_metrics = {}
+            test_metrics = None
             if trainer.test_loader:
                 test_metrics = trainer.evaluate(
                     val_loader=trainer.test_loader,
-                    conf_thresh=trainer.cfg.conf_thresh,
-                    iou_thresh=trainer.cfg.iou_thresh,
+                    val_cfg=val_cfg,
                     path_to_save=trainer.cfg.paths.path_to_save,
                     extended=True,
                     mode="test",
                 )
                 if train_config.use_wandb:
-                    dl_utils.wandb_logger(None, test_metrics, epoch=-1, mode="test")
+                    dl_utils.wandb_logger(None, test_metrics.to_dict(), epoch=-1, mode="test")
 
             dl_utils.log_metrics_locally(
-                all_metrics={"val": val_metrics, "test": test_metrics},
+                all_metrics={
+                    "val": val_metrics.to_dict() if val_metrics else {}, 
+                    "test": test_metrics.to_dict() if test_metrics else {}
+                },
                 path_to_save=train_config.paths.path_to_save,
                 epoch=0,
                 extended=True,
