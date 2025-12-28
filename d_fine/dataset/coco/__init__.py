@@ -1,5 +1,3 @@
-from d_fine.dataset.coco.coco_dataset import CocoDataset, CocoDatasetConfig
-from d_fine.dataset.coco.coco_loader import CocoLoader
+from d_fine.dataset.coco.coco_dataset import CocoDatasetConfig, CocoLoader
 
-__all__ = ["CocoDataset", "CocoDatasetConfig", "CocoLoader"]
-
+__all__ = ["CocoDatasetConfig", "CocoLoader"]

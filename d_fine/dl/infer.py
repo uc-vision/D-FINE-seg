@@ -1,68 +1,99 @@
 from pathlib import Path
 from shutil import rmtree
 
-import cv2
 import click
 from loguru import logger
 from tqdm import tqdm
+import torch
+
 from d_fine.config import TrainConfig
 from d_fine.infer.torch_model import Torch_model
-from d_fine.validation.visualization import visualize
-from d_fine import utils as dl_utils
+from d_fine.core import image_utils
+from lib_detection.annotation.viewer import InstanceViewer, Key
+from lib_gaussian import ClassConfig, ClassInfo
+from ucvision_utility.concurrent.threaded import map_iter_threaded
 
 
 @click.command()
-@click.option("--project-name", required=True, help="Project name")
-@click.option("--base-path", required=True, type=click.Path(exists=True, path_type=Path), help="Base project path")
-@click.option("--exp-name", type=str, help="Experiment name (defaults to latest)")
-def main(project_name: str, base_path: Path, exp_name: str | None) -> None:
-    """Run inference on images or videos.
-    
-    Loads config from saved training experiment.
-    """
-    try:
-        train_config = TrainConfig.load_from_experiment(base_path, exp_name)
-    except FileNotFoundError as e:
-        raise click.BadParameter(str(e))
-    
-    loader = train_config.dataset.create_loader(
-        batch_size=1, num_workers=0
+@click.argument("training_path", type=click.Path(exists=True, path_type=Path))
+@click.argument("image_dir", type=click.Path(exists=True, path_type=Path))
+@click.option("--conf-thresh", type=float, help="Confidence threshold (default: from config)")
+@click.option("--view", is_flag=True, help="View results interactively")
+@click.option("--output-path", type=click.Path(path_type=Path), help="Output path for results")
+def main(
+  training_path: Path,
+  image_dir: Path,
+  conf_thresh: float | None,
+  view: bool,
+  output_path: Path | None,
+) -> None:
+  """Run inference with D-FINE-seg.
+
+  TRAINING_PATH: Path to training output directory (contains config.json and model.pt)
+  IMAGE_DIR: Directory containing images to process
+  """
+  try:
+    # Load config.json from experiment directory
+    config_path = training_path / "config.json"
+    if not config_path.exists():
+      # Try loading from base_path and exp_name if training_path is just base_path
+      train_config = TrainConfig.load_from_experiment(training_path)
+    else:
+      train_config = TrainConfig.load(config_path)
+  except Exception as e:
+    raise click.BadParameter(f"Failed to load config: {e}")
+
+  if conf_thresh is not None:
+    train_config = train_config.model_copy(update={"conf_thresh": conf_thresh})
+
+  torch_model = Torch_model.from_train_config(train_config)
+
+  # Load label_to_name from loader
+  loader = train_config.dataset.create_loader(batch_size=1, num_workers=0)
+  label_to_name = loader.label_to_name
+
+  if view:
+    class_config = ClassConfig(
+      classes={name: ClassInfo(name=name, class_only=False) for name in label_to_name.values()}
     )
-    _, val_loader_temp, _ = loader.build_dataloaders(distributed=False)
+    viewer = InstanceViewer(class_config, window_name="D-FINE Inference")
 
-    torch_model = Torch_model.from_train_config(train_config)
-
-    data_path = train_config.dataset.path_to_test_data
-    if not data_path.exists():
-        logger.error(f"Test data path does not exist: {data_path}")
-        return
-
-    output_path = train_config.paths.infer_path
+  if output_path:
     if output_path.exists():
-        rmtree(output_path)
+      rmtree(output_path)
     output_path.mkdir(parents=True)
 
-    img_extensions = {".jpg", ".jpeg", ".png", ".bmp"}
-    vid_extensions = {".mp4", ".avi", ".mov", ".mkv"}
+  img_paths = [
+    f for f in image_dir.iterdir() if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}
+  ]
 
-    label_to_name = loader.label_to_name
+  def process_image(img_path: Path):
+    img_rgb = image_utils.load_image(img_path)
+    res = torch_model(img_rgb)
+    return img_rgb, res, img_path
 
-    for f in tqdm(list(data_path.iterdir()), desc="Inference"):
-        if f.name.startswith("."): continue
-        
-        if f.suffix.lower() in img_extensions:
-            img = dl_utils.load_image(f)
-            res = torch_model(img)
-            vis_img = visualize(img, res, label_to_name)
-            dl_utils.save_image(output_path / f.name, vis_img)
-            
-        elif f.suffix.lower() in vid_extensions:
-            for frame_idx, frame in enumerate(dl_utils.load_video(f)):
-                res = torch_model(frame)
-                vis_img = visualize(frame, res, label_to_name)
-                out_name = f"{f.stem}_frame_{frame_idx:06d}.jpg"
-                dl_utils.save_image(output_path / out_name, vis_img)
+  for img_rgb, res, img_path in tqdm(
+    map_iter_threaded(process_image, img_paths), total=len(img_paths), desc="Inference"
+  ):
+    if output_path:
+      from d_fine.validation.visualization import visualize
+
+      vis_img = visualize(img_rgb, res, label_to_name)
+      image_utils.save_image(output_path / img_path.name, vis_img)
+
+    if view:
+      from lib_detection.annotation.instance_mask import PanopticImage
+
+      panoptic = PanopticImage(rgb=img_rgb, instances=res.masks, class_config=class_config)
+      viewer.set_image(panoptic, img_path.name)
+
+      while True:
+        key = viewer.wait_for_key()
+        if key == Key.ESC:
+          return
+        elif key in {Key.SPACE, Key.RIGHT_ARROW}:
+          break
 
 
 if __name__ == "__main__":
-    main()
+  main()

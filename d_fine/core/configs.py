@@ -1,232 +1,232 @@
 base_cfg = {
-    "HGNetv2": {
-        "pretrained": False,
-        "local_model_dir": "weight/hgnetv2/",
-        "freeze_stem_only": True,
+  "HGNetv2": {"pretrained": False, "local_model_dir": "weight/hgnetv2/", "freeze_stem_only": True},
+  "HybridEncoder": {
+    "num_encoder_layers": 1,
+    "nhead": 8,
+    "dropout": 0.0,
+    "enc_act": "gelu",
+    "act": "silu",
+  },
+  "DFINETransformer": {
+    "eval_idx": -1,
+    "num_queries": 300,
+    "num_denoising": 100,
+    "label_noise_ratio": 0.5,
+    "box_noise_scale": 1.0,
+    "reg_max": 32,
+    "layer_scale": 1,
+    "cross_attn_method": "default",
+    "query_select_method": "default",
+  },
+  "DFINECriterion": {
+    "weight_dict": {
+      "loss_vfl": 1,
+      "loss_bbox": 5,
+      "loss_giou": 2,
+      "loss_fgl": 0.15,
+      "loss_ddf": 1.5,
+      "loss_mask_bce": 1,  # only for mask head
+      "loss_mask_dice": 1,  # only for mask head
     },
-    "HybridEncoder": {
-        "num_encoder_layers": 1,
-        "nhead": 8,
-        "dropout": 0.0,
-        "enc_act": "gelu",
-        "act": "silu",
+    "losses": ["vfl", "boxes", "local"],  #  "masks" will be added if training with segment task
+    "alpha": 0.75,
+    "gamma": 2.0,
+    "reg_max": 32,
+  },
+  "matcher": {
+    "weight_dict": {
+      "cost_class": 2,
+      "cost_bbox": 5,
+      "cost_giou": 2,
+      "cost_mask": 5,  # focal mask cost for segmentation matching
+      "cost_mask_dice": 5,  # dice mask cost for segmentation matching
     },
-    "DFINETransformer": {
-        "eval_idx": -1,
-        "num_queries": 300,
-        "num_denoising": 100,
-        "label_noise_ratio": 0.5,
-        "box_noise_scale": 1.0,
-        "reg_max": 32,
-        "layer_scale": 1,
-        "cross_attn_method": "default",
-        "query_select_method": "default",
-    },
-    "DFINECriterion": {
-        "weight_dict": {
-            "loss_vfl": 1,
-            "loss_bbox": 5,
-            "loss_giou": 2,
-            "loss_fgl": 0.15,
-            "loss_ddf": 1.5,
-            "loss_mask_bce": 1,  # only for mask head
-            "loss_mask_dice": 1,  # only for mask head
-        },
-        "losses": ["vfl", "boxes", "local"],  #  "masks" will be added if training with segment task
-        "alpha": 0.75,
-        "gamma": 2.0,
-        "reg_max": 32,
-    },
-    "matcher": {
-        "weight_dict": {
-            "cost_class": 2,
-            "cost_bbox": 5,
-            "cost_giou": 2,
-            "cost_mask": 5,  # focal mask cost for segmentation matching
-            "cost_mask_dice": 5,  # dice mask cost for segmentation matching
-        },
-        "alpha": 0.25,
-        "gamma": 2.0,
-        "use_focal_loss": True,
-    },
+    "alpha": 0.25,
+    "gamma": 2.0,
+    "use_focal_loss": True,
+  },
 }
 
 sizes_cfg = {
-    "n": {
-        "HGNetv2": {
-            "name": "B0",
-            "return_idx": [2, 3],
-            "freeze_at": -1,
-            "freeze_norm": False,
-            "use_lab": True,
-        },
-        "HybridEncoder": {
-            "in_channels": [512, 1024],
-            "feat_strides": [16, 32],
-            "hidden_dim": 128,
-            "use_encoder_idx": [1],
-            "dim_feedforward": 512,
-            "expansion": 0.34,
-            "depth_mult": 0.5,
-        },
-        "DFINETransformer": {
-            "feat_channels": [128, 128],
-            "feat_strides": [16, 32],
-            "hidden_dim": 128,
-            "num_levels": 2,
-            "num_layers": 3,
-            "reg_scale": 4,
-            "num_points": [6, 6],
-            "dim_feedforward": 512,
-            "mask_dim": 256,
-        },
+  "n": {
+    "HGNetv2": {
+      "name": "B0",
+      "return_idx": [2, 3],
+      "freeze_at": -1,
+      "freeze_norm": False,
+      "use_lab": True,
     },
-    "s": {
-        "HGNetv2": {
-            "name": "B0",
-            "return_idx": [1, 2, 3],
-            "freeze_at": -1,
-            "freeze_norm": False,
-            "use_lab": True,
-        },
-        "HybridEncoder": {
-            "in_channels": [256, 512, 1024],
-            "feat_strides": [8, 16, 32],
-            "hidden_dim": 256,
-            "use_encoder_idx": [2],
-            "dim_feedforward": 1024,
-            "expansion": 0.5,
-            "depth_mult": 0.34,
-        },
-        "DFINETransformer": {
-            "feat_channels": [256, 256, 256],
-            "feat_strides": [8, 16, 32],
-            "hidden_dim": 256,
-            "num_levels": 3,
-            "num_layers": 3,
-            "reg_scale": 4,
-            "num_points": [3, 6, 3],
-            "mask_dim": 256,
-        },
+    "HybridEncoder": {
+      "in_channels": [512, 1024],
+      "feat_strides": [16, 32],
+      "hidden_dim": 128,
+      "use_encoder_idx": [1],
+      "dim_feedforward": 512,
+      "expansion": 0.34,
+      "depth_mult": 0.5,
     },
-    "m": {
-        "HGNetv2": {
-            "name": "B2",
-            "return_idx": [1, 2, 3],
-            "freeze_at": -1,
-            "freeze_norm": False,
-            "use_lab": True,
-        },
-        "HybridEncoder": {
-            "in_channels": [384, 768, 1536],
-            "feat_strides": [8, 16, 32],
-            "hidden_dim": 256,
-            "use_encoder_idx": [2],
-            "dim_feedforward": 1024,
-            "expansion": 1.0,
-            "depth_mult": 0.67,
-        },
-        "DFINETransformer": {
-            "feat_channels": [256, 256, 256],
-            "feat_strides": [8, 16, 32],
-            "hidden_dim": 256,
-            "dim_feedforward": 1024,
-            "num_levels": 3,
-            "num_layers": 4,
-            "reg_scale": 4,
-            "num_points": [3, 6, 3],
-            "mask_dim": 64,
-        },
+    "DFINETransformer": {
+      "feat_channels": [128, 128],
+      "feat_strides": [16, 32],
+      "hidden_dim": 128,
+      "num_levels": 2,
+      "num_layers": 3,
+      "reg_scale": 4,
+      "num_points": [6, 6],
+      "dim_feedforward": 512,
+      "mask_dim": 256,
     },
-    "l": {
-        "HGNetv2": {
-            "name": "B4",
-            "return_idx": [1, 2, 3],
-            "freeze_at": 0,
-            "freeze_norm": True,
-            "use_lab": False,
-        },
-        "HybridEncoder": {
-            "in_channels": [512, 1024, 2048],
-            "feat_strides": [8, 16, 32],
-            "hidden_dim": 256,
-            "use_encoder_idx": [2],
-            "dim_feedforward": 1024,
-            "expansion": 1.0,
-            "depth_mult": 1.0,
-        },
-        "DFINETransformer": {
-            "feat_channels": [256, 256, 256],
-            "feat_strides": [8, 16, 32],
-            "hidden_dim": 256,
-            "dim_feedforward": 1024,
-            "num_levels": 3,
-            "num_layers": 6,
-            "reg_scale": 4,
-            "num_points": [3, 6, 3],
-            "mask_dim": 256,
-        },
+  },
+  "s": {
+    "HGNetv2": {
+      "name": "B0",
+      "return_idx": [1, 2, 3],
+      "freeze_at": -1,
+      "freeze_norm": False,
+      "use_lab": True,
     },
-    "x": {
-        "HGNetv2": {
-            "name": "B5",
-            "return_idx": [1, 2, 3],
-            "freeze_at": 0,
-            "freeze_norm": True,
-            "use_lab": False,
-        },
-        "HybridEncoder": {
-            "in_channels": [512, 1024, 2048],
-            "feat_strides": [8, 16, 32],
-            "hidden_dim": 384,
-            "use_encoder_idx": [2],
-            "dim_feedforward": 2048,
-            "expansion": 1.0,
-            "depth_mult": 1.0,
-        },
-        "DFINETransformer": {
-            "feat_channels": [384, 384, 384],
-            "feat_strides": [8, 16, 32],
-            "hidden_dim": 256,
-            "dim_feedforward": 1024,
-            "num_levels": 3,
-            "num_layers": 6,
-            "reg_scale": 8,
-            "num_points": [3, 6, 3],
-            "mask_dim": 256,
-        },
+    "HybridEncoder": {
+      "in_channels": [256, 512, 1024],
+      "feat_strides": [8, 16, 32],
+      "hidden_dim": 256,
+      "use_encoder_idx": [2],
+      "dim_feedforward": 1024,
+      "expansion": 0.5,
+      "depth_mult": 0.34,
     },
+    "DFINETransformer": {
+      "feat_channels": [256, 256, 256],
+      "feat_strides": [8, 16, 32],
+      "hidden_dim": 256,
+      "num_levels": 3,
+      "num_layers": 3,
+      "reg_scale": 4,
+      "num_points": [3, 6, 3],
+      "mask_dim": 256,
+    },
+  },
+  "m": {
+    "HGNetv2": {
+      "name": "B2",
+      "return_idx": [1, 2, 3],
+      "freeze_at": -1,
+      "freeze_norm": False,
+      "use_lab": True,
+    },
+    "HybridEncoder": {
+      "in_channels": [384, 768, 1536],
+      "feat_strides": [8, 16, 32],
+      "hidden_dim": 256,
+      "use_encoder_idx": [2],
+      "dim_feedforward": 1024,
+      "expansion": 1.0,
+      "depth_mult": 0.67,
+    },
+    "DFINETransformer": {
+      "feat_channels": [256, 256, 256],
+      "feat_strides": [8, 16, 32],
+      "hidden_dim": 256,
+      "dim_feedforward": 1024,
+      "num_levels": 3,
+      "num_layers": 4,
+      "reg_scale": 4,
+      "num_points": [3, 6, 3],
+      "mask_dim": 64,
+    },
+  },
+  "l": {
+    "HGNetv2": {
+      "name": "B4",
+      "return_idx": [1, 2, 3],
+      "freeze_at": 0,
+      "freeze_norm": True,
+      "use_lab": False,
+    },
+    "HybridEncoder": {
+      "in_channels": [512, 1024, 2048],
+      "feat_strides": [8, 16, 32],
+      "hidden_dim": 256,
+      "use_encoder_idx": [2],
+      "dim_feedforward": 1024,
+      "expansion": 1.0,
+      "depth_mult": 1.0,
+    },
+    "DFINETransformer": {
+      "feat_channels": [256, 256, 256],
+      "feat_strides": [8, 16, 32],
+      "hidden_dim": 256,
+      "dim_feedforward": 1024,
+      "num_levels": 3,
+      "num_layers": 6,
+      "reg_scale": 4,
+      "num_points": [3, 6, 3],
+      "mask_dim": 256,
+    },
+  },
+  "x": {
+    "HGNetv2": {
+      "name": "B5",
+      "return_idx": [1, 2, 3],
+      "freeze_at": 0,
+      "freeze_norm": True,
+      "use_lab": False,
+    },
+    "HybridEncoder": {
+      "in_channels": [512, 1024, 2048],
+      "feat_strides": [8, 16, 32],
+      "hidden_dim": 384,
+      "use_encoder_idx": [2],
+      "dim_feedforward": 2048,
+      "expansion": 1.0,
+      "depth_mult": 1.0,
+    },
+    "DFINETransformer": {
+      "feat_channels": [384, 384, 384],
+      "feat_strides": [8, 16, 32],
+      "hidden_dim": 256,
+      "dim_feedforward": 1024,
+      "num_levels": 3,
+      "num_layers": 6,
+      "reg_scale": 8,
+      "num_points": [3, 6, 3],
+      "mask_dim": 256,
+    },
+  },
 }
 
 
 def merge_configs(base, size_specific):
-    result = {**base}
-    for key, value in size_specific.items():
-        if key in result and isinstance(result[key], dict):
-            result[key] = merge_configs(result[key], value)
-        else:
-            result[key] = value
-    return result
+  result = {**base}
+  for key, value in size_specific.items():
+    if key in result and isinstance(result[key], dict):
+      result[key] = merge_configs(result[key], value)
+    else:
+      result[key] = value
+  return result
 
 
 def to_high(s, ch):
-    c = sizes_cfg[s]
-    t = c["DFINETransformer"]
-    return merge_configs(c, {
-        "HGNetv2": {"return_idx": [0] + c["HGNetv2"]["return_idx"]},
-        "DFINETransformer": {
-            "mask_feat_channels": [ch] + [c["HybridEncoder"]["hidden_dim"]] * t["num_levels"],
-            "mask_feat_strides": [4] + t["feat_strides"],
-        },
-        "pretrained_model_path": f"weight/dfine_{s}.pth"
-    })
+  c = sizes_cfg[s]
+  t = c["DFINETransformer"]
+  return merge_configs(
+    c,
+    {
+      "HGNetv2": {"return_idx": [0] + c["HGNetv2"]["return_idx"]},
+      "DFINETransformer": {
+        "mask_feat_channels": [ch] + [c["HybridEncoder"]["hidden_dim"]] * t["num_levels"],
+        "mask_feat_strides": [4] + t["feat_strides"],
+      },
+      "pretrained_model_path": f"weight/dfine_{s}.pth",
+    },
+  )
+
 
 high_cfg = {
-    "n_high": to_high("n", 64),
-    "s_high": to_high("s", 64),
-    "m_high": to_high("m", 96),
-    "l_high": to_high("l", 128),
-    "x_high": to_high("x", 128),
+  "n_high": to_high("n", 64),
+  "s_high": to_high("s", 64),
+  "m_high": to_high("m", 96),
+  "l_high": to_high("l", 128),
+  "x_high": to_high("x", 128),
 }
 
 models = {s: merge_configs(base_cfg, c) for s, c in {**sizes_cfg, **high_cfg}.items()}
