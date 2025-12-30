@@ -32,15 +32,13 @@ class Torch_model(InferenceModel):
   def from_train_config(
     cls,
     train_config: TrainConfig,
-    model_path: Path | None = None,
+    num_classes: int,
+    model_path: Path,
+    device: torch.device,
     use_nms: bool = False,
-    device: torch.device | None = None,
   ) -> Torch_model:
     """Create a Torch_model from a training configuration."""
-    if model_path is None:
-      model_path = train_config.paths.path_to_save / "model.pt"
-
-    config = train_config.get_evaluation_config(train_config.num_classes)
+    config = train_config.get_evaluation_config(num_classes)
     return cls(config, model_path, use_nms=use_nms, device=device)
 
   def _load_model(self) -> None:
@@ -64,12 +62,12 @@ class Torch_model(InferenceModel):
     """Preprocess a single image for the model."""
     tensor, orig_size = infer_utils.preprocess(
       img,
-      (self.config.input_height, self.config.input_width),
+      self.config.input_size, # (width, height)
       self.config.keep_aspect,
       self.config.rect,
       dtype=self.config.np_dtype,
     )
-    processed_size = (tensor.shape[1], tensor.shape[2])
+    processed_size = (tensor.shape[2], tensor.shape[1]) # (width, height) from CHW
     tensor = tensor.unsqueeze(0).to(self.device)
     if self.device.type == "cuda":
       tensor = tensor.pin_memory()
@@ -89,14 +87,14 @@ class Torch_model(InferenceModel):
     for i in range(batch_size):
       tensor, orig_size = infer_utils.preprocess(
         imgs[i],
-        (self.config.input_height, self.config.input_width),
+        self.config.input_size,
         self.config.keep_aspect,
         self.config.rect,
         dtype=self.config.np_dtype,
       )
       tensors.append(tensor)
       orig_sizes.append(orig_size)
-      processed_sizes.append((tensor.shape[1], tensor.shape[2]))
+      processed_sizes.append((tensor.shape[2], tensor.shape[1])) # (width, height)
 
     input_tensor = torch.stack(tensors).to(self.device)
     if self.device.type == "cuda":

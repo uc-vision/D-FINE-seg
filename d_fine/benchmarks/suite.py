@@ -1,7 +1,8 @@
 import click
 from pathlib import Path
 from d_fine.config import TrainConfig
-from d_fine.benchmarks import inference, batching, view_samples
+from d_fine.benchmarks import inference, batching
+from d_fine.scripts import view_samples
 
 
 def resolve_config(
@@ -14,8 +15,12 @@ def resolve_config(
   if target_path.is_dir() and (target_path / "config.json").exists():
     return TrainConfig.load(target_path / "config.json")
 
-  # Otherwise treat as a preset path
-  return TrainConfig.from_hydra(preset=target_path, base_path=base_path, overrides=overrides)
+  # Otherwise treat as generic overrides. If target is a file that doesn't exist, assume it's a preset name.
+  final_overrides = list(overrides) if overrides else []
+  if not target_path.exists():
+    final_overrides.append(f"preset={target}")
+  
+  return TrainConfig.from_hydra(base_path=base_path, overrides=final_overrides)
 
 
 @click.group()

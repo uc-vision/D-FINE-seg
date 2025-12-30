@@ -1,9 +1,49 @@
 from __future__ import annotations
 
-import random
+import cv2
 import numpy as np
 import torch
-import cv2
+
+
+def refine_boxes_from_affine(
+  targets: np.ndarray, M: np.ndarray, area_thr: float = 0.01
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+  """Apply affine transform to boxes and filter invalid ones.
+
+  Targets: [N, 5] (label, x1, y1, x2, y2)
+  M: [3, 3] affine matrix
+  """
+  if targets.size == 0:
+    return targets, np.zeros(0, dtype=bool), np.zeros(0, dtype=int)
+
+  n = len(targets)
+  boxes = targets[:, 1:5]
+  
+  # Corners [N, 4, 2]
+  corners = np.zeros((n, 4, 2))
+  corners[:, 0] = boxes[:, [0, 1]]  # x1, y1
+  corners[:, 1] = boxes[:, [2, 1]]  # x2, y1
+  corners[:, 2] = boxes[:, [2, 3]]  # x2, y2
+  corners[:, 3] = boxes[:, [0, 3]]  # x1, y2
+
+  # Transform corners
+  corners_flat = corners.reshape(-1, 2)
+  corners_hom = np.hstack([corners_flat, np.ones((len(corners_flat), 1))])
+  t_corners = corners_hom @ M[:2].T
+  t_corners = t_corners.reshape(n, 4, 2)
+
+  # New bounding boxes [N, 4]
+  new_boxes = np.zeros((n, 4))
+  new_boxes[:, 0] = t_corners[:, :, 0].min(1)
+  new_boxes[:, 1] = t_corners[:, :, 1].min(1)
+  new_boxes[:, 2] = t_corners[:, :, 0].max(1)
+  new_boxes[:, 3] = t_corners[:, :, 1].max(1)
+
+  # Filter candidates
+  keep = box_candidates(box1=boxes.T, box2=new_boxes.T, area_thr=area_thr)
+  
+  res_targets = np.hstack([targets[keep, :1], new_boxes[keep]])
+  return res_targets, keep, np.where(keep)[0]
 
 
 def box_candidates(
@@ -14,102 +54,87 @@ def box_candidates(
   area_thr: float = 0.1,
   eps: float = 1e-16,
 ) -> np.ndarray:
-  """Check if boxes are valid candidates for augmentation."""
+  """Filter box candidates based on size and aspect ratio changes.
+
+  Args:
+      box1: [4, N] (x1, y1, x2, y2) before transform
+      box2: [4, N] (x1, y1, x2, y2) after transform
+  """
   w1, h1 = box1[2] - box1[0], box1[3] - box1[1]
   w2, h2 = box2[2] - box2[0], box2[3] - box2[1]
-  ar = np.maximum(w2 / (h2 + eps), h2 / (w2 + eps))
-  return (w2 > wh_thr) & (h2 > wh_thr) & (w2 * h2 / (w1 * h1 + eps) > area_thr) & (ar < ar_thr)
-
-
-def refine_boxes_from_affine(
-  targets: np.ndarray, M: np.ndarray
-) -> tuple[np.ndarray, torch.Tensor, np.ndarray]:
-  """Refine boxes using affine transformation matrix."""
-  xy = np.ones((len(targets) * 4, 3), dtype=np.float32)
-  xy[:, :2] = targets[:, [1, 2, 3, 4, 1, 4, 3, 2]].reshape(-1, 2)
-  xy = xy @ M.T
-  xy = xy[:, :2].reshape(-1, 8)
-  new_boxes_np = np.stack(
-    [
-      xy[:, [0, 2, 4, 6]].min(1),
-      xy[:, [1, 3, 5, 7]].min(1),
-      xy[:, [0, 2, 4, 6]].max(1),
-      xy[:, [1, 3, 5, 7]].max(1),
-    ],
-    axis=1,
-  )
-
-  keep = box_candidates(box1=targets[:, 1:5].T, box2=new_boxes_np.T, area_thr=0.1)
-
+  ar = np.maximum(w2 / (h2 + eps), h2 / (w2 + eps))  # aspect ratio
   return (
-    targets[keep],
-    torch.as_tensor(new_boxes_np[keep], dtype=torch.float32),
-    np.where(keep)[0],
+    (w2 > wh_thr)
+    & (h2 > wh_thr)
+    & (w2 * h2 / (w1 * h1 + eps) > area_thr)
+    & (ar < ar_thr)
   )
-
-
-def abs_xyxy_to_norm_xywh(box: np.ndarray, w: int, h: int) -> np.ndarray:
-  """Convert absolute XYXY to normalized XYWH."""
-  if len(box) == 0:
-    return box
-  new_box = box.copy()
-  new_box[:, 0] = (box[:, 0] + box[:, 2]) / (2 * w)
-  new_box[:, 1] = (box[:, 1] + box[:, 3]) / (2 * h)
-  new_box[:, 2] = (box[:, 2] - box[:, 0]) / w
-  new_box[:, 3] = (box[:, 3] - box[:, 1]) / h
-  return new_box
-
-
-def norm_xywh_to_abs_xyxy(box: np.ndarray, w: int, h: int) -> np.ndarray:
-  """Convert normalized XYWH to absolute XYXY."""
-  if len(box) == 0:
-    return box
-  new_box = box.copy()
-  new_box[:, 0] = (box[:, 0] - box[:, 2] / 2) * w
-  new_box[:, 1] = (box[:, 1] - box[:, 3] / 2) * h
-  new_box[:, 2] = (box[:, 0] + box[:, 2] / 2) * w
-  new_box[:, 3] = (box[:, 1] + box[:, 3] / 2) * h
-  return new_box
 
 
 def get_transform_matrix(
-  img_shape: tuple[int, int],
-  target_shape: tuple[int, int],
-  degrees: float,
-  scale: float,
-  shear: float,
-  translate: float,
+  img_size: tuple[int, int],
+  target_size: tuple[int, int],
+  degrees: float = 0.0,
+  scale: tuple[float, float] = (1.0, 1.0),
+  shear: float = 0.0,
+  translate: float = 0.0,
 ) -> tuple[np.ndarray, float]:
-  """Compute transformation matrix for mosaic augmentation."""
-  import math
+  """Compute affine transform matrix for mosaic/aug.
+  
+  img_size and target_size are (width, height).
+  """
+  w, h = img_size
+  tw, th = target_size
+
+  # Center
+  C = np.eye(3)
+  C[0, 2] = -w / 2
+  C[1, 2] = -h / 2
 
   # Rotation and Scale
-  C = np.eye(3)
-  C[0, 2] = -img_shape[1] / 2  # x center
-  C[1, 2] = -img_shape[0] / 2  # y center
-
   R = np.eye(3)
-  angle = random.uniform(-degrees, degrees)
-  if isinstance(scale, tuple):
-    s = random.uniform(scale[0], scale[1])
-  else:
-    s = random.uniform(1 - scale, 1 + scale)
-  R[:2] = cv2.getRotationMatrix2D(angle=(angle), center=(0, 0), scale=s)
+  a = np.random.uniform(-degrees, degrees)
+  s = np.random.uniform(scale[0], scale[1])
+  R[:2] = cv2.getRotationMatrix2D(center=(0, 0), angle=a, scale=s)
 
   # Shear
   S = np.eye(3)
-  S[0, 1] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # x shear (deg)
-  S[1, 0] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # y shear (deg)
+  S[0, 1] = np.tan(np.random.uniform(-shear, shear) * np.pi / 180)
+  S[1, 0] = np.tan(np.random.uniform(-shear, shear) * np.pi / 180)
 
   # Translation
   T = np.eye(3)
-  T[0, 2] = (
-    random.uniform(0.5 - translate, 0.5 + translate) * target_shape[1]
-  )  # x translation (pixels)
-  T[1, 2] = (
-    random.uniform(0.5 - translate, 0.5 + translate) * target_shape[0]
-  )  # y translation (pixels)
+  T[0, 2] = np.random.uniform(0.5 - translate, 0.5 + translate) * tw
+  T[1, 2] = np.random.uniform(0.5 - translate, 0.5 + translate) * th
 
   # Combined matrix
   M = T @ S @ R @ C
   return M, s
+
+
+def abs_xyxy_to_norm_xywh(boxes: torch.Tensor, w: int, h: int) -> torch.Tensor:
+  """Convert absolute xyxy to normalized xywh."""
+  if boxes.numel() == 0:
+    return boxes
+  res = boxes.clone()
+  res[:, [0, 2]] /= w
+  res[:, [1, 3]] /= h
+  res[:, 2] -= res[:, 0]
+  res[:, 3] -= res[:, 1]
+  res[:, 0] += res[:, 2] / 2
+  res[:, 1] += res[:, 3] / 2
+  return res
+
+
+def norm_xywh_to_abs_xyxy(boxes: torch.Tensor, w: int, h: int) -> torch.Tensor:
+  """Convert normalized xywh to absolute xyxy."""
+  if boxes.numel() == 0:
+    return boxes
+  res = boxes.clone()
+  res[:, 0] -= res[:, 2] / 2
+  res[:, 1] -= res[:, 3] / 2
+  res[:, 2] += res[:, 0]
+  res[:, 3] += res[:, 1]
+  res[:, [0, 2]] *= w
+  res[:, [1, 3]] *= h
+  return res

@@ -13,20 +13,21 @@ from d_fine.core.box_utils import get_transform_matrix
 
 
 def get_mosaic_coordinate(
-  mosaic_index: int, xc: int, yc: int, w: int, h: int, target_h: int, target_w: int
+  mosaic_index: int, xc: int, yc: int, w: int, h: int, target_size: tuple[int, int]
 ) -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]]:
   """Compute coordinates for mosaic augmentation."""
+  tw, th = target_size
   if mosaic_index == 0:
     x1, y1, x2, y2 = max(xc - w, 0), max(yc - h, 0), xc, yc
     small_coord = w - (x2 - x1), h - (y2 - y1), w, h
   elif mosaic_index == 1:
-    x1, y1, x2, y2 = xc, max(yc - h, 0), min(xc + w, target_w * 2), yc
+    x1, y1, x2, y2 = xc, max(yc - h, 0), min(xc + w, tw * 2), yc
     small_coord = 0, h - (y2 - y1), min(w, x2 - x1), h
   elif mosaic_index == 2:
-    x1, y1, x2, y2 = max(xc - w, 0), yc, xc, min(target_h * 2, yc + h)
+    x1, y1, x2, y2 = max(xc - w, 0), yc, xc, min(th * 2, yc + h)
     small_coord = w - (x2 - x1), 0, w, min(y2 - y1, h)
   else:  # mosaic_index == 3
-    x1, y1, x2, y2 = xc, yc, min(xc + w, target_w * 2), min(target_h * 2, yc + h)
+    x1, y1, x2, y2 = xc, yc, min(xc + w, tw * 2), min(th * 2, yc + h)
     small_coord = 0, 0, min(w, x2 - x1), min(y2 - y1, h)
   return (x1, y1, x2, y2), small_coord
 
@@ -59,11 +60,12 @@ class MosaicSource:
 
 
 def _get_mosaic_params(
-  samples: list, target_h: int, target_w: int, img_config: ImageConfig
+  samples: list, target_size: tuple[int, int], img_config: ImageConfig
 ) -> tuple[int, int, list[MosaicSource], tuple[Path, ...]]:
-  yc = int(random.uniform(target_h * 0.6, target_h * 1.4))
-  xc = int(random.uniform(target_w * 0.6, target_w * 1.4))
-  canvas_w, canvas_h = 2 * target_w, 2 * target_h
+  tw, th = target_size
+  yc = int(random.uniform(th * 0.6, th * 1.4))
+  xc = int(random.uniform(tw * 0.6, tw * 1.4))
+  canvas_w, canvas_h = 2 * tw, 2 * th
 
   per_image_info = []
   all_paths = []
@@ -71,13 +73,13 @@ def _get_mosaic_params(
   for i, sample in enumerate(samples):
     h, w = sample.image.shape[:2]
     sw, sh = (
-      (min(target_h / h, target_w / w),) * 2
+      (min(th / h, tw / w),) * 2
       if img_config.keep_aspect
-      else (target_w / w, target_h / h)
+      else (tw / w, th / h)
     )
 
     (l_x1, l_y1, l_x2, l_y2), (s_x1, s_y1, s_x2, s_y2) = get_mosaic_coordinate(
-      i, xc, yc, int(w * sw), int(h * sh), target_h, target_w
+      i, xc, yc, int(w * sw), int(h * sh), target_size
     )
 
     info = MosaicSource(
@@ -85,9 +87,9 @@ def _get_mosaic_params(
       pad=(l_x1 - s_x1, l_y1 - s_y1),
       large_coords=(l_x1, l_y1, l_x2, l_y2),
       small_coords=(s_x1, s_y1, s_x2, s_y2),
-      canvas_size=(canvas_h, canvas_w),
+      canvas_size=(canvas_w, canvas_h),
     )
     per_image_info.append(info)
     all_paths.extend(sample.paths)
 
-  return canvas_h, canvas_w, per_image_info, tuple(all_paths)
+  return canvas_w, canvas_h, per_image_info, tuple(all_paths)

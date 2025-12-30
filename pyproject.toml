@@ -49,11 +49,10 @@ export = [
 
 [project.scripts]
 "d-fine-split" = "d_fine.etl.split:main"
-"d-fine-train" = "d_fine.dl.train_entrypoint:main"
-"d-fine-export" = "d_fine.dl.export:main"
+"d-fine-train" = "d_fine.scripts.train_entrypoint:main"
 "d-fine-bench" = "d_fine.benchmarks.suite:cli"
-"d-fine-infer" = "d_fine.dl.infer:main"
-"d-fine-ov-int8" = "d_fine.dl.ov_int8:main"
+"d-fine-infer" = "d_fine.scripts.infer:main"
+"d-fine-view-samples" = "d_fine.scripts.view_samples:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["d_fine"]
@@ -92,7 +91,7 @@ split = "d-fine-split"
 train = "d-fine-train"
 export = "d-fine-export"
 bench = "d-fine-bench"
-view_samples = "d-fine-bench view-samples"
+view_samples = "d-fine-view-samples"
 infer = "d-fine-infer"
 ov_int8 = "d-fine-ov-int8"
 

@@ -11,15 +11,16 @@ from d_fine.dataset.dataset import Dataset, ProcessedSample
 from d_fine.dataset.detection.sample import DetectionSample
 from d_fine.dataset.coco.coco_dataset import CocoDatasetConfig, load_coco_sample
 from d_fine.dataset.augmentations import init_augs
-from d_fine.core.box_utils import get_transform_matrix
+from d_fine.core.box_utils import get_transform_matrix, box_candidates
 from d_fine.dataset.mosaic import _get_mosaic_params
 
 
 def assemble_mosaic(
-  samples: list[DetectionSample], target_h: int, target_w: int, img_config: ImageConfig
+  samples: list[DetectionSample], target_size: tuple[int, int], img_config: ImageConfig
 ) -> DetectionSample:
   """Specialized mosaic assembly for object detection."""
-  ch, cw, infos, paths = _get_mosaic_params(samples, target_h, target_w, img_config)
+  cw, ch, infos, paths = _get_mosaic_params(samples, target_size, img_config)
+  tw, th = target_size
 
   mosaic_img = np.full((ch, cw, 3), 114, dtype=np.uint8)
   mosaic_targets = []
@@ -41,15 +42,19 @@ def assemble_mosaic(
   res_targets[:, [1, 3]] = np.clip(res_targets[:, [1, 3]], 0, cw)
   res_targets[:, [2, 4]] = np.clip(res_targets[:, [2, 4]], 0, ch)
 
+  # Filter out small/invalid boxes after clipping
+  keep = box_candidates(box1=res_targets[:, 1:5].T, box2=res_targets[:, 1:5].T, wh_thr=2, area_thr=0.01)
+  res_targets = res_targets[keep]
+
   m_cfg = img_config.mosaic_augs
   M, _ = get_transform_matrix(
-    (ch, cw), (target_w, target_h), m_cfg.degrees, m_cfg.mosaic_scale, m_cfg.shear, m_cfg.translate
+    (ch, cw), (tw, th), m_cfg.degrees, m_cfg.mosaic_scale, m_cfg.shear, m_cfg.translate
   )
 
   res = DetectionSample(
-    image=mosaic_img, targets=res_targets, orig_size=torch.tensor([target_h, target_w]), paths=paths
+    image=mosaic_img, targets=res_targets, orig_size=torch.tensor([th, tw]), paths=paths
   )
-  return res.warp_affine(M, (target_w, target_h))
+  return res.warp_affine(M, (tw, th))
 
 
 class DetectionDataset(Dataset[DetectionSample]):
@@ -91,16 +96,14 @@ class DetectionDataset(Dataset[DetectionSample]):
       dtype=np.float32,
     ).reshape(-1, 5)
     return DetectionSample(
-      image=image, targets=targets, paths=(path,), orig_size=torch.tensor(image.shape[:2])
+      image=image, targets=targets, paths=(path,), orig_size=torch.tensor([image.shape[0], image.shape[1]])
     )
 
   def __getitem__(self, idx: int) -> ProcessedSample:
     img_cfg = self.config.img_config
     if random.random() < img_cfg.mosaic_augs.mosaic_prob and self.mode == Mode.TRAIN:
       indices = [idx] + [random.randint(0, len(self.coco.images) - 1) for _ in range(3)]
-      s = assemble_mosaic(
-        [self.get_data(i) for i in indices], img_cfg.target_h, img_cfg.target_w, img_cfg
-      )
+      s = assemble_mosaic([self.get_data(i) for i in indices], img_cfg.target_size, img_cfg)
       return s.apply_transform(self.mosaic_transform)
     else:
       s = self.get_data(idx)

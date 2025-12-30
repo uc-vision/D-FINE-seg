@@ -4,25 +4,22 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
+from typing import Any
+import importlib.util
 
 import numpy as np
 import torch
-from pydantic import BaseModel, Field, field_validator
-
-import json
-from typing import Any, Callable
+from pydantic import BaseModel
 from omegaconf import OmegaConf
 from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
 from hydra.utils import instantiate
-import importlib.util
-
 
 def config_path():
   spec = importlib.util.find_spec("d_fine")
   if not (spec and spec.origin):
     raise RuntimeError("Could not find d_fine package")
   return Path(spec.origin).parent / "config"
-
 
 def _get_hydra_config(
   project_name: str, exp_name: str, base_path: Path, overrides: list[str] | None = None
@@ -32,16 +29,21 @@ def _get_hydra_config(
   if not OmegaConf.has_resolver("lookup"):
     OmegaConf.register_new_resolver("lookup", getitem, replace=True)
 
-  config_dir = config_path()
+  if GlobalHydra.instance().is_initialized():
+    GlobalHydra.instance().clear()
 
+  config_dir = config_path()
+  
   override_list = [
     f"project_name={project_name}",
     f"exp_name={exp_name}",
     f"base_path={base_path}",
-    "dataset=coco",
-  ] + (overrides or [])
+  ]
+  
+  if overrides is not None:
+    override_list.extend(overrides)
 
-  with initialize_config_dir(config_dir=str(config_dir), version_base="1.3"):
+  with initialize_config_dir(config_dir=str(config_dir.absolute()), version_base="1.3"):
     return compose(config_name="config", overrides=override_list)
 
 
@@ -97,42 +99,15 @@ class ClassConfig(BaseModel, frozen=True):
   conf_thresh: float | None = None
   iou_thresh: float | None = None
 
+
   @classmethod
-  def load(cls, path: Path) -> "ClassConfig":
+  def load(cls, path: Path) -> ClassConfig:
     """Load class config from JSON file."""
-    import json
-
-    if not path.exists():
-      raise FileNotFoundError(f"class_config.json not found at {path}")
-    with open(path) as f:
-      data = json.load(f)
-
-    # Handle legacy label_to_name.json format
-    if "label_to_name" not in data:
-      # Assume entire file is label_to_name mapping
-      label_to_name = {int(k): v for k, v in data.items()}
-      return cls(label_to_name=label_to_name)
-
-    # Convert label_to_name keys from string to int (JSON keys are strings)
-    label_to_name = {int(k): v for k, v in data["label_to_name"].items()}
-    return cls(
-      label_to_name=label_to_name,
-      conf_thresh=data.get("conf_thresh"),
-      iou_thresh=data.get("iou_thresh"),
-    )
+    return cls.model_validate_json(path.read_text())
 
   def save(self, path: Path) -> None:
     """Save class config to JSON file."""
-    import json
-
-    data = {"label_to_name": self.label_to_name}
-    if self.conf_thresh is not None:
-      data["conf_thresh"] = self.conf_thresh
-    if self.iou_thresh is not None:
-      data["iou_thresh"] = self.iou_thresh
-
-    with open(path, "w") as f:
-      json.dump(data, f, indent=2)
+    path.write_text(self.model_dump_json(indent=2))
 
 
 class MultiscaleConfig(BaseModel, frozen=True):
@@ -209,13 +184,16 @@ class ImageConfig(BaseModel, frozen=True):
   mosaic_augs: MosaicAugsConfig = MosaicAugsConfig()
 
   @property
+  def target_size(self) -> tuple[int, int]:
+    """Return target size as (width, height)."""
+    return self.img_size
+
+  @property
   def target_w(self) -> int:
-    """Return target width."""
     return self.img_size[0]
 
   @property
   def target_h(self) -> int:
-    """Return target height."""
     return self.img_size[1]
 
   @property
@@ -253,6 +231,11 @@ class EvaluationConfig(BaseModel, frozen=True):
   @property
   def n_outputs(self) -> int:
     return self.num_classes
+
+  @property
+  def input_size(self) -> tuple[int, int]:
+    """Return input size as (width, height)."""
+    return self.img_config.target_size
 
   @property
   def input_width(self) -> int:
@@ -425,16 +408,14 @@ class TrainConfig(BaseModel, frozen=True):
   def from_hydra(
     cls,
     base_path: Path,
-    preset: Path | None = None,
     overrides: list[str] | None = None,
     project_name: str = "d-fine",
     exp_name: str = "default",
   ) -> TrainConfig:
-    """Load TrainConfig from Hydra configuration and optional preset.
+    """Load TrainConfig from Hydra configuration.
 
     Args:
         base_path: Base dataset path (compulsory).
-        preset: Optional full path to a preset YAML file.
         overrides: Optional Hydra overrides
         project_name: Project name for the configuration
         exp_name: Experiment name for the configuration
@@ -446,28 +427,17 @@ class TrainConfig(BaseModel, frozen=True):
       raise FileNotFoundError(f"Base path not found: {base_path}")
 
     cfg = _get_hydra_config(project_name, exp_name, base_path, overrides)
-
-    if preset:
-      if not preset.is_file():
-        raise FileNotFoundError(f"Preset config file not found: {preset}")
-      cfg = OmegaConf.merge(cfg, OmegaConf.load(preset))
-
+    
     return instantiate(cfg.train, _convert_="all")
 
-  @classmethod
-  def save(cls, config: TrainConfig, path: Path) -> None:
+  def save(self, path: Path) -> None:
     """Save TrainConfig to JSON file."""
-    with open(path, "w") as f:
-      f.write(config.model_dump_json(indent=2))
+    path.write_text(self.model_dump_json(indent=2))
 
   @classmethod
   def load(cls, path: Path) -> TrainConfig:
     """Load TrainConfig from JSON file."""
-    import json
-
-    with open(path) as f:
-      config_dict = json.load(f)
-    return cls.model_validate(config_dict)
+    return cls.model_validate_json(path.read_text())
 
   @classmethod
   def load_from_experiment(cls, base_path: Path, exp_name: str | None = None) -> TrainConfig:

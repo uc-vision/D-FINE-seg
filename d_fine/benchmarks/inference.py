@@ -2,124 +2,114 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from collections.abc import Iterator, Callable
-import numpy as np
-import pandas as pd
+
 import torch
 from loguru import logger
-from tabulate import tabulate
 from tqdm import tqdm
 
-from d_fine.config import TrainConfig, Task
-from d_fine.infer.base import InferenceModel
-from d_fine.dataset.dataset import Dataset, ToImageResult
-from d_fine.validation import Validator, ValidationConfig, EvaluationMetrics
-from d_fine.validation.utils import (
-  detection_sample_to_image_result,
-  segmentation_sample_to_image_result,
-)
-from d_fine.core.types import ImageResult
+from d_fine.config import Mode, TrainConfig
+from d_fine.dataset import get_loader_class
+from d_fine.infer.torch_model import Torch_model
+from d_fine.validation.metrics import ValidationConfig
+from d_fine.validation.utils import coco_to_image_results
+from d_fine.validation.validator import Validator
 
 
-def run_inference_iterator[T](
-  model: InferenceModel, dataset: Dataset[T], converter: ToImageResult[T]
-) -> Iterator[tuple[ImageResult, ImageResult, float]]:
-  """Yields (prediction, ground_truth, latency_ms) for each sample."""
-  for i in range(len(dataset)):
-    sample = dataset.get_data(i)
-
-    t0 = time.perf_counter()
-    pred = model(sample.image)
-    latency = (time.perf_counter() - t0) * 1000
-
-    yield pred, converter(sample), latency
-
-
-def benchmark_model[T](
-  dataset: Dataset[T],
-  model: InferenceModel,
-  name: str,
-  val_cfg: ValidationConfig,
-  converter: ToImageResult[T],
-) -> tuple[float, EvaluationMetrics]:
-  """Run benchmark for a single model."""
-  logger.info(f"Benchmarking {name}")
-
-  results = list(
-    tqdm(
-      run_inference_iterator(model, dataset, converter), total=len(dataset), desc=name, leave=False
-    )
-  )
-  preds, gts, latencies = zip(*results)
-
-  metrics = Validator(list(gts), list(preds), config=val_cfg).compute_metrics()
-  # Skip first sample for latency to avoid initialization overhead
-  avg_latency = float(np.mean(latencies[1:])) if len(latencies) > 1 else float(latencies[0])
-
-  return avg_latency, metrics
-
-
-def run_benchmark(train_config: TrainConfig, ann_path: Path | None = None) -> None:
+def run_benchmark(config: TrainConfig, ann_path: Path | None = None) -> None:
   """Run inference latency and accuracy benchmark."""
-  save_dir = train_config.paths.path_to_save
-
+  # 1. Setup data loader
   if ann_path:
-    dataset = train_config.dataset.create_dataset(ann_path, mode="val")
-  else:
-    loader = train_config.dataset.create_loader(batch_size=1, num_workers=1)
-    _, val_loader, _ = loader.build_dataloaders(distributed=False)
-    dataset = val_loader.dataset
+    # Use provided annotation file instead of the default val_ann
+    config = config.model_copy(
+      update={"dataset": config.dataset.model_copy(update={"val_ann": str(ann_path)})}
+    )
 
-  converter = (
-    segmentation_sample_to_image_result
-    if train_config.task == Task.SEGMENT
-    else detection_sample_to_image_result
+  loader_class = get_loader_class(config.dataset)
+  loader = loader_class(config.dataset, batch_size=1, num_workers=4)
+  _, val_loader, _ = loader.build_dataloaders()
+  dataset = val_loader.dataset
+
+  # 2. Setup model
+  logger.info(f"Loading model for experiment: {config.exp_name}")
+  classes_path = config.paths.path_to_save / "classes.json"
+  if not classes_path.exists():
+    raise FileNotFoundError(f"Classes configuration not found at {classes_path}")
+
+  from d_fine.config import ClassConfig
+
+  class_config_obj = ClassConfig.load(classes_path)
+  num_classes = len(class_config_obj.label_to_name)
+
+  torch_model = Torch_model.from_train_config(
+    config,
+    num_classes=num_classes,
+    model_path=config.paths.path_to_save / "model.pt",
+    device=torch.device(config.device),
   )
 
-  from d_fine.infer import Torch_model, TRT_model, OV_model, ONNX_model
+  # Load ground truth from COCO file
+  from lib_detection.annotation.coco import CocoDataset as CocoFile
 
-  models: dict[str, InferenceModel] = {}
-  if Torch_model:
-    models["Torch"] = Torch_model.from_train_config(train_config)
+  logger.info(f"Loading ground truth from {dataset.annotation_file}")
+  coco_gt = CocoFile(dataset.annotation_file)
+  gt_results = coco_to_image_results(coco_gt)
 
-  trt_path = save_dir / "model.engine"
-  if trt_path.exists() and TRT_model:
-    models["TensorRT"] = TRT_model.from_train_config(train_config)
+  # 3. Warmup
+  logger.info("Warming up model...")
+  dummy_img = torch.randn(1, 3, config.dataset.img_size[1], config.dataset.img_size[0])
+  device = torch_model.device
+  dummy_img = dummy_img.to(device)
+  for _ in range(10):
+    _ = torch_model.model(dummy_img)
+  if device.type == "cuda":
+    torch.cuda.synchronize()
 
-  ov_path = save_dir / "model.xml"
-  if ov_path.exists() and OV_model:
-    models["OpenVINO"] = OV_model.from_train_config(train_config)
+  # 4. Run inference
+  preds = []
+  times = []
 
-  onnx_path = save_dir / "model.onnx"
-  if onnx_path.exists() and ONNX_model:
-    models["ONNX"] = ONNX_model.from_train_config(train_config)
+  logger.info(f"Running inference on {len(dataset)} images...")
+  for idx in tqdm(range(len(dataset))):
+    sample = dataset.get_data(idx)
+    img_rgb = sample.image
 
-  ov_int8_path = save_dir / "model_int8.xml"
-  if ov_int8_path.exists() and OV_model:
-    eval_cfg = train_config.get_evaluation_config(dataset.num_classes)
-    models["OpenVINO INT8"] = OV_model(eval_cfg, ov_int8_path)
+    start = time.perf_counter()
+    res = torch_model(img_rgb)
+    if device.type == "cuda":
+      torch.cuda.synchronize()
+    end = time.perf_counter()
 
-  val_cfg = ValidationConfig(
-    conf_threshold=train_config.conf_thresh,
-    iou_threshold=train_config.iou_thresh,
-    label_to_name=dataset.label_to_name,
+    preds.append(res)
+    times.append(end - start)
+
+  # 5. Compute metrics
+  avg_latency = sum(times) / len(times) * 1000  # ms
+  fps = 1.0 / (sum(times) / len(times))
+
+  val_config = ValidationConfig(
+    conf_threshold=config.conf_thresh,
+    iou_threshold=config.iou_thresh,
+    label_to_name=loader.label_to_name,
   )
 
-  results = {
-    name: benchmark_model(dataset, m, name, val_cfg, converter) for name, m in models.items()
-  }
+  validator = Validator(gt=gt_results, preds=preds, config=val_config)
+  metrics = validator.compute_metrics()
 
-  # Format and display results
-  table_data = {
-    name: metrics.to_dict() | {"latency_ms": lat} for name, (lat, metrics) in results.items()
-  }
-  df = pd.DataFrame.from_dict(table_data, orient="index")
-  summary_cols = [c for c in df.columns if not isinstance(df[c].iloc[0], dict)]
-  summary_df = df[summary_cols]
+  # 6. Report results
+  print("\n" + "=" * 60)
+  print(f"BENCHMARK RESULTS: {config.exp_name}")
+  print("=" * 60)
+  print(f"{'Metric':<25} | {'Value':<20}")
+  print("-" * 60)
+  print(f"{'Latency':<25} | {avg_latency:.2f} ms")
+  print(f"{'FPS':<25} | {fps:.2f}")
+  print("-" * 60)
 
-  print("\n" + tabulate(summary_df.round(4), headers="keys", tablefmt="pretty"))
-
-  save_dir.mkdir(parents=True, exist_ok=True)
-  save_path = save_dir / "inference_benchmark.csv"
-  df.to_csv(save_path)
-  logger.info(f"Results saved to {save_path}")
+  results_dict = metrics.to_dict()
+  for k, v in results_dict.items():
+    if isinstance(v, (float, int)):
+      print(f"{k:<25} | {v:.4f}")
+    elif isinstance(v, dict):
+      # Skip nested class metrics for brevity in summary
+      continue
+  print("=" * 60 + "\n")

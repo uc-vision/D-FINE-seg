@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import torch
 from lib_detection.annotation.coco import InstanceMask
+from lib_detection.bounds import BatchBounds
 
 
 @dataclass
@@ -26,14 +27,7 @@ class ImageResult:
 
     labels = torch.tensor([inst.label for inst in instances], dtype=torch.long)
     scores = torch.tensor([inst.score for inst in instances], dtype=torch.float32)
-    boxes = torch.stack(
-      [
-        torch.tensor(
-          [inst.bounds.x1, inst.bounds.y1, inst.bounds.x2, inst.bounds.y2], dtype=torch.float32
-        )
-        for inst in instances
-      ]
-    )
+    boxes = BatchBounds.from_instances(instances).data
 
     return cls(labels=labels, boxes=boxes, img_size=img_size, scores=scores, masks=instances)
 

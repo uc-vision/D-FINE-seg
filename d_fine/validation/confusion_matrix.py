@@ -5,16 +5,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-@dataclass
+@dataclass(frozen=True)
 class ConfusionMatrix:
   n_classes: int
-  matrix: np.ndarray = field(init=False)
+  matrix: np.ndarray
   class_to_idx: dict[int, int] = field(default_factory=dict)
 
-  def __post_init__(self):
-    self.matrix = np.zeros((self.n_classes + 1, self.n_classes + 1), dtype=int)
+  @classmethod
+  def empty(cls, n_classes: int, class_to_idx: dict[int, int]) -> ConfusionMatrix:
+    return cls(
+      n_classes=n_classes,
+      matrix=np.zeros((n_classes + 1, n_classes + 1), dtype=int),
+      class_to_idx=class_to_idx,
+    )
 
-  def update(self, gt_label: int | None, pred_label: int | None):
+  def update(self, gt_label: int | None, pred_label: int | None) -> ConfusionMatrix:
     g_idx = (
       self.class_to_idx.get(gt_label, self.n_classes) if gt_label is not None else self.n_classes
     )
@@ -23,7 +28,20 @@ class ConfusionMatrix:
       if pred_label is not None
       else self.n_classes
     )
-    self.matrix[g_idx, p_idx] += 1
+    new_matrix = self.matrix.copy()
+    new_matrix[g_idx, p_idx] += 1
+    return ConfusionMatrix(
+      n_classes=self.n_classes,
+      matrix=new_matrix,
+      class_to_idx=self.class_to_idx,
+    )
+
+  def __add__(self, other: ConfusionMatrix) -> ConfusionMatrix:
+    return ConfusionMatrix(
+      n_classes=self.n_classes,
+      matrix=self.matrix + other.matrix,
+      class_to_idx=self.class_to_idx,
+    )
 
   def plot(self, save_path: Path, label_to_name: dict[int, str]):
     class_labels = [

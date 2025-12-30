@@ -9,7 +9,14 @@ from loguru import logger
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
 from d_fine.core.types import ImageResult
-from .metrics import EvaluationMetrics, PerClassMetrics, ValidationConfig
+from .metrics import (
+  EvaluationMetrics,
+  PerClassMetrics,
+  ValidationConfig,
+  CoreMetrics,
+  Counts,
+  APMetrics,
+)
 from .confusion_matrix import ConfusionMatrix
 from .mask_ap import SparseMaskAP
 from .matcher import GreedyMatcher, box_iou_fn, mask_iou_fn
@@ -61,7 +68,7 @@ class Validator:
 
     # Initialize components
     all_classes = sorted(list({lbl for r in gt + preds for lbl in r.labels.tolist()}))
-    self.conf_matrix = ConfusionMatrix(
+    self.conf_matrix = ConfusionMatrix.empty(
       n_classes=len(all_classes),
       class_to_idx={cls_id: idx for idx, cls_id in enumerate(all_classes)},
     )
@@ -73,17 +80,25 @@ class Validator:
     self.torch_metrics = self.torch_metric.compute()
 
     metrics = self._compute_main_metrics(self.preds, ignore_masks=ignore_masks)
-    metrics.map_50 = self.torch_metrics["map_50"].item()
-    metrics.map_75 = self.torch_metrics["map_75"].item()
-    metrics.map_50_95 = self.torch_metrics["map"].item()
 
+    bbox_ap = APMetrics(
+      map_50=self.torch_metrics["map_50"].item(),
+      map_75=self.torch_metrics["map_75"].item(),
+      map_50_95=self.torch_metrics["map"].item(),
+    )
+
+    mask_ap = APMetrics()
     if self.use_masks and not ignore_masks:
-      mask_ap = self.sparse_mask_ap.compute(self.gt, self.preds)
-      metrics.map_50_mask = mask_ap.map_50
-      metrics.map_75_mask = mask_ap.map_75
-      metrics.map_50_95_mask = mask_ap.map_50_95
+      res = self.sparse_mask_ap.compute(self.gt, self.preds)
+      mask_ap = APMetrics(
+        map_50=res.map_50,
+        map_75=res.map_75,
+        map_50_95=res.map_50_95,
+      )
 
-    return metrics
+    from dataclasses import replace
+
+    return replace(metrics, bbox=bbox_ap, mask=mask_ap)
 
   def _compute_main_metrics(
     self, preds: list[ImageResult], ignore_masks=False
@@ -92,13 +107,17 @@ class Validator:
     total = sum(self.metrics_per_class.values(), PerClassMetrics())
 
     return EvaluationMetrics(
-      f1=total.f1,
-      precision=total.precision,
-      recall=total.recall,
-      iou=total.avg_iou,
-      tps=total.tps,
-      fps=total.fps,
-      fns=total.fns,
+      core=CoreMetrics(
+        f1=total.f1,
+        precision=total.precision,
+        recall=total.recall,
+        iou=total.avg_iou,
+      ),
+      counts=Counts(
+        tps=total.tps,
+        fps=total.fps,
+        fns=total.fns,
+      ),
       per_class=dict(self.metrics_per_class),
     )
 
@@ -106,8 +125,14 @@ class Validator:
     self, preds: list[ImageResult], ignore_masks: bool
   ) -> dict[int, PerClassMetrics]:
     if self.use_masks and not ignore_masks:
-      return self.matcher.compute_metrics(preds, self.gt, self.conf_matrix, mask_iou_fn)
-    return self.matcher.compute_metrics(preds, self.gt, self.conf_matrix, box_iou_fn)
+      metrics, self.conf_matrix = self.matcher.compute_metrics(
+        preds, self.gt, self.conf_matrix, mask_iou_fn
+      )
+    else:
+      metrics, self.conf_matrix = self.matcher.compute_metrics(
+        preds, self.gt, self.conf_matrix, box_iou_fn
+      )
+    return metrics
 
   def save_plots(self, path_to_save: Path) -> None:
     self.plotter.save_all_plots(

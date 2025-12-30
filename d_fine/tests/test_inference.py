@@ -9,6 +9,9 @@ from d_fine.core.types import ImageResult
 from lib_detection.annotation import InstanceMask
 
 
+from d_fine.tests.utils import generate_random_image
+
+
 def create_dummy_config(tmp_path: Path):
   model_path = tmp_path / "model.pt"
   # We'll need a real model or a mock one.
@@ -36,7 +39,7 @@ def test_torch_model_inference(tmp_path):
   config, model_path = create_dummy_config(tmp_path)
   model = Torch_model(config=config, model_path=model_path)
 
-  img = np.random.randint(0, 255, size=(480, 640, 3), dtype=np.uint8)
+  img = generate_random_image(480, 640)
   res = model(img)
 
   assert isinstance(res, ImageResult)
@@ -55,7 +58,7 @@ def test_torch_model_nms(tmp_path):
   # Enable NMS
   model = Torch_model(config=config, model_path=model_path, use_nms=True)
 
-  img = np.random.randint(0, 255, size=(640, 640, 3), dtype=np.uint8)
+  img = generate_random_image(640, 640)
   res = model(img)
 
   # NMS shouldn't crash and should return ImageResult

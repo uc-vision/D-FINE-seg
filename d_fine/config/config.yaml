@@ -1,174 +1,75 @@
-project_name: ??? # for wandb
-exp_name: baseline # experiment name
+defaults:
+  - _self_
+  - preset: none
 
-### Paths ###
+# Experiment metadata
+project_name: d-fine
+exp_name: default
 base_path: ???
 
-exp: ${exp_name}_${now_dir}
+# Paths configuration
+paths:
+  _target_: d_fine.config.PathConfig
+  base_path: ${base_path}
+  path_to_save: ${base_path}/output/models/${exp_name}
 
-# Key variables for brevity (also accessible in train)
-model_name: s # model size (n, s, m, l, x)
-task: detect
-img_size: [640, 640]
-
-# Recommended learning rates by model size
-lrs:
-  n:
-    backbone_lr: 0.0004
-    base_lr: 0.0008
-  s:
-    backbone_lr: 0.00006  # can setup up to 0.0002
-    base_lr: 0.00025  # 0.0004
-  m:
-    backbone_lr: 0.00002  # 0.000025
-    base_lr: 0.00015  # 0.00025
-  l:
-    backbone_lr: 0.00000625 # 0.0000125
-    base_lr: 0.000125 # 0.00025
-  x:
-    backbone_lr: 0.0000015  # 0.0000025
-    base_lr: 0.0001  # 0.00025
+# Dataset configuration
+dataset:
+  _target_: d_fine.config.DatasetConfig
+  task: detect
+  examples_per_epoch: null
+  img_config:
+    _target_: d_fine.config.ImageConfig
+    img_size: [640, 640]
+    keep_aspect: false
 
 train:
   _target_: d_fine.config.TrainConfig
   project_name: ${project_name}
   exp_name: ${exp_name}
-  model_name: ${model_name}
-  task: ${task}
-  base_path: ${base_path}
-
-  # Model output paths
-  paths:
-    _target_: d_fine.config.PathConfig
-    base_path: ${train.base_path}
-    path_to_save: ${train.base_path}/output/models/${exp}
+  paths: ${paths}
+  dataset: ${dataset}
   
-  # Model paths
-  pretrained_dataset: coco # coco, obj2coco
-  pretrained_model_path: pretrained/dfine_${model_name}_${train.pretrained_dataset}.pth # dfine_m_obj2coco.pth
+  # Model setup
+  model_name: s
+  pretrained_dataset: coco
   
-  # Legacy alias for compatibility
-  root: ${train.base_path}
-
-  ### Configs ###
+  # Training hardware & speed
   device: cuda
-
-  ### Distributed Training (DDP) ###
-  ddp:
-    enabled: False  # set to true to use multi-GPU
-    n_gpus: 2  # how many GPUs / processes per node for torchrun
-
-  decision_metrics:
-  - f1
-  - mAP_50
-
-  # Visualization options
-  visualize_eval: 5
-  visualize_training: 5
-  visualize_loader: 5
-
-  # Image configuration
-  img_config:
-    _target_: d_fine.config.ImageConfig
-    img_size: ${img_size}
-    norm_mean: [0.485, 0.456, 0.406]
-    norm_std: [0.229, 0.224, 0.225]
-    keep_aspect: False
-  # Augmentation configurations
-  mosaic_augs:
-    _target_: d_fine.config.MosaicAugsConfig
-    mosaic_prob: 0.8
-    no_mosaic_epochs: 5
-    mosaic_scale: [0.5, 1.5]
-    degrees: 0.0
-    translate: 0.2
-    shear: 2.0
-  augs:
-    geometric:
-      shift_limit: 0.1
-      scale_limit: [-0.2, 0.2]
-      rotate_limit: 10
-      
-    rotate_90_prob: 0.05
-    left_right_flip: 0.3
-    up_down_flip: 0.0
-    hsv:
-      prob: 0.1
-      hue_shift_limit: 10.0
-      sat_shift_limit: 10.0
-      val_shift_limit: 10.0
-    to_gray_prob: 0.01
-    blur:
-      prob: 0.1
-      limit: 3
-    gamma:
-      prob: 0.1
-      limit: [90, 110]
-    brightness:
-      prob: 0.1
-      limit: 0.1
-    noise:
-      prob: 0.1
-      std_range: [0.01, 0.1]
-    coarse_dropout_prob: 0.0
-
-  amp_enabled: True # use automatic mixed precision
-  clip_max_norm: 0.1 # gradient clipping
-  multiscale:
-    prob: 0.0
-    offset_range: [-2, -1, 1, 2]
-    step_size: 32
-
-  batch_size: 8 # physical, should fit on the device. In DDP used per GPU
-  b_accum_steps: 1 # grad accumulation (n * bs)
+  num_workers: 12
+  amp_enabled: true
+  cudnn_fixed: false
+  
+  # Training schedule
   epochs: 55
-  early_stopping: 0 # 0 - no early stopping
-  num_workers: 12 # In DDP used per GPU
-  mask_batch_size: 1000 # number of images to process at once when computing mask metrics
-
-  ### Validation ###
+  batch_size: 8
+  b_accum_steps: 1
+  early_stopping: 0
+  seed: 42
+  
+  # Inference & Evaluation
   conf_thresh: 0.5
   iou_thresh: 0.5
-
-  # EMA
-  use_ema: True # use exponential moving average model
-  ema_momentum: 0.9998
-
-  # Logger configuration
-  logger: wandb
-
-  ### Optimizer and Scheduler ###
-  lrs: ${lookup:${lrs}, ${model_name}}
-  base_lr: ${train.lrs.base_lr}
-  backbone_lr: ${train.lrs.backbone_lr}
-  cycler_pct_start: 0.1
+  num_top_queries: 300
+  decision_metrics: [f1, mAP_50]
+  
+  # Loss parameters
+  use_focal_loss: true
+  mask_batch_size: 1000
+  
+  # Optimization parameters
+  clip_max_norm: 0.1
   weight_decay: 0.000125
   betas: [0.9, 0.999]
   label_smoothing: 0.0
-
-  ### Reproducibility ###
-  seed: 42
-  cudnn_fixed: False
-
-  ### Export configuration ###
-  export:
-    _target_: d_fine.config.ExportConfig
-    half: True # tensorrt, openvino
-    max_batch_size: 1 # torch, tensorrt, openvino
-    dynamic_input: False
-    ov_int8_max_drop: 0.01
-
-
-### service ###
-defaults:
-  - _self_
-  - dataset: coco  # dataset type
-  - override hydra/hydra_logging: disabled
-  - override hydra/job_logging: disabled
-
-hydra:
-  output_subdir: null
-  run:
-    dir: .
-
-now_dir: &nowdir ${now:%Y-%m-%d}
+  cycler_pct_start: 0.1
+  
+  # EMA & Logging
+  use_ema: true
+  ema_momentum: 0.9998
+  logger: wandb
+  
+  # Visualization frequencies
+  visualize_eval: 5
+  visualize_training: 5
+  visualize_loader: 5

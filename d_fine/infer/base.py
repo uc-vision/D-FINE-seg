@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from pathlib import Path
 import numpy as np
 from d_fine.core.types import ImageResult
 from d_fine.config import EvaluationConfig, TrainConfig
@@ -21,6 +22,8 @@ class InferenceModel(ABC):
 
   @classmethod
   @abstractmethod
-  def from_train_config(cls, train_config: TrainConfig) -> "InferenceModel":
+  def from_train_config(
+    cls, train_config: TrainConfig, num_classes: int, model_path: Path
+  ) -> "InferenceModel":
     """Factory method to create a model from a training configuration."""
     pass

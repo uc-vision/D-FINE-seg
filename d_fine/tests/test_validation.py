@@ -1,56 +1,22 @@
 import pytest
 import torch
-import numpy as np
-from pathlib import Path
-from hypothesis import given, strategies as st, settings
-from hypothesis.extra.numpy import arrays
-from d_fine.validation.matcher import greedy_match, box_iou_fn, mask_iou_fn, Match
+from hypothesis import given, strategies as st
+from d_fine.validation.matcher import greedy_match, mask_iou_fn
 from d_fine.validation.validator import Validator
 from d_fine.validation.metrics import ValidationConfig
 from d_fine.validation.utils import coco_to_image_results
 from d_fine.core.types import ImageResult
-from lib_detection.annotation import InstanceMask, stack_boxes
 from lib_detection.annotation.coco import load_coco_json
-
-
-def make_random_instance_mask(label=0, score=1.0, shape=(10, 10), offset=(0, 0)):
-  mask = torch.rand(shape) > 0.5
-  if not mask.any():
-    mask[0, 0] = True
-  return InstanceMask(mask=mask, label=label, offset=offset, score=score)
-
-
-def jitter_mask(m: InstanceMask, jitter: int = 3) -> InstanceMask:
-  """Shift an instance mask by a random amount."""
-
-  dx, dy = np.random.randint(-jitter, jitter + 1, size=2).tolist()
-  return InstanceMask(
-    mask=m.mask, label=m.label, offset=(m.offset[0] + dx, m.offset[1] + dy), score=0.99
-  )
-
-
-def jitter_results(results: list[ImageResult], jitter: int = 3) -> list[ImageResult]:
-  """Shift every instance in a list of ImageResults by a random amount."""
-  return [
-    ImageResult(
-      labels=res.labels,
-      boxes=stack_boxes(jittered_masks := [jitter_mask(m, jitter) for m in res.masks]),
-      img_size=res.img_size,
-      scores=torch.ones(len(res.labels)) * 0.99,
-      masks=jittered_masks,
-    )
-    for res in results
-  ]
-
-
-def find_test_datasets() -> list[Path]:
-  """Locate all test datasets in the test_data folder."""
-  data_dir = Path(__file__).parent / "test_data"
-  return list(data_dir.glob("*.json"))
+from d_fine.tests.utils import (
+  instance_mask_strategy,
+  jitter_results,
+  make_random_instance_mask,
+  find_test_datasets
+)
 
 
 @pytest.mark.parametrize("data_path", find_test_datasets())
-def test_validator_real_gt_against_itself(data_path: Path):
+def test_validator_real_gt_against_itself(data_path):
   coco = load_coco_json(data_path)
   gt_results = coco_to_image_results(coco)
 
@@ -71,18 +37,18 @@ def test_validator_real_gt_against_itself(data_path: Path):
   assert metrics.fns == 0
 
   # Bbox AP
-  assert metrics.map_50 == 1.0
-  assert metrics.map_75 == 1.0
-  assert metrics.map_50_95 == 1.0
+  assert metrics.bbox.map_50 == 1.0
+  assert metrics.bbox.map_75 == 1.0
+  assert metrics.bbox.map_50_95 == 1.0
 
   # Mask AP
-  assert metrics.map_50_mask == 1.0
-  assert metrics.map_75_mask == 1.0
-  assert metrics.map_50_95_mask == 1.0
+  assert metrics.mask.map_50 == 1.0
+  assert metrics.mask.map_75 == 1.0
+  assert metrics.mask.map_50_95 == 1.0
 
 
 @pytest.mark.parametrize("data_path", find_test_datasets())
-def test_validator_real_gt_jittered(data_path: Path):
+def test_validator_real_gt_jittered(data_path):
   coco = load_coco_json(data_path)
   gt_results = coco_to_image_results(coco)
   pred_results = jitter_results(gt_results, jitter=3)
@@ -97,22 +63,6 @@ def test_validator_real_gt_jittered(data_path: Path):
   assert metrics.tps == sum(len(r.labels) for r in gt_results)
   assert metrics.fps == 0
   assert metrics.fns == 0
-
-
-@st.composite
-def instance_mask_strategy(draw):
-  w = draw(st.integers(min_value=1, max_value=20))
-  h = draw(st.integers(min_value=1, max_value=20))
-  # Ensure at least one pixel is True to avoid zero area
-  mask_np = draw(arrays(np.bool_, (h, w)))
-  if not np.any(mask_np):
-    mask_np[0, 0] = True
-  mask = torch.from_numpy(mask_np)
-  label = draw(st.integers(min_value=0, max_value=10))
-  x = draw(st.integers(min_value=0, max_value=100))
-  y = draw(st.integers(min_value=0, max_value=100))
-  score = draw(st.floats(min_value=0, max_value=1))
-  return InstanceMask(mask=mask, label=label, offset=(x, y), score=score)
 
 
 @given(st.lists(instance_mask_strategy(), min_size=1, max_size=5))

@@ -52,7 +52,13 @@ class CompactMasks(BaseModel, frozen=True):
 
     boxes = torch.zeros((len(self.indices), 4), dtype=torch.float32, device=self.id_map.device)
     if mask_any.any():
-      boxes[mask_any] = torchvision.ops.masks_to_boxes(masks[mask_any])
+      raw_boxes = torchvision.ops.masks_to_boxes(masks[mask_any])
+      # Ensure boxes are valid for albumentations (x2 > x1, y2 > y1)
+      # torchvision returns [x1, y1, x2, y2] inclusive. 
+      # If a box is a single pixel, x1 == x2. We make it x2 = x1 + 1.
+      raw_boxes[:, 2] = torch.maximum(raw_boxes[:, 2], raw_boxes[:, 0] + 0.1)
+      raw_boxes[:, 3] = torch.maximum(raw_boxes[:, 3], raw_boxes[:, 1] + 0.1)
+      boxes[mask_any] = raw_boxes
     return boxes
 
 

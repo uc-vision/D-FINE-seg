@@ -17,26 +17,27 @@ def letterbox(
   scaleup: bool = True,
   stride: int = 32,
 ) -> tuple[np.ndarray, tuple[float, float], tuple[float, float]]:
-  """Resize and pad image while meeting stride-multiple constraints."""
+  """Resize and pad image while meeting stride-multiple constraints.
+  new_shape: (width, height)
+  """
   shape = im.shape[:2]  # current shape [height, width]
-  if isinstance(new_shape, int):
-    new_shape = (new_shape, new_shape)
+  tw, th = new_shape
 
   # Scale ratio (new / old)
-  r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
+  r = min(th / shape[0], tw / shape[1])
   if not scaleup:  # only scale down, do not scale up (for better val mAP)
     r = min(r, 1.0)
 
   # Compute padding
   ratio = r, r  # width, height ratios
   new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
-  dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
+  dw, dh = tw - new_unpad[0], th - new_unpad[1]  # wh padding
   if auto:  # minimum rectangle
     dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
   elif scale_fill:  # stretch
     dw, dh = 0.0, 0.0
-    new_unpad = (new_shape[1], new_shape[0])
-    ratio = new_shape[1] / shape[1], new_shape[0] / shape[0]  # width, height ratios
+    new_unpad = (tw, th)
+    ratio = tw / shape[1], th / shape[0]  # width, height ratios
 
   dw /= 2  # divide padding into 2 sides
   dh /= 2
@@ -49,11 +50,19 @@ def letterbox(
   return im, ratio, (dw, dh)
 
 
-def compute_nearest_size(shape: tuple[int, int], target_size: int, stride: int = 32) -> list[int]:
-  """Get nearest size that is divisible by stride."""
+def compute_nearest_size(
+  shape: tuple[int, int], target_size: int, stride: int = 32
+) -> tuple[int, int]:
+  """Get nearest size that is divisible by stride.
+  shape: (height, width)
+  returns: (width, height)
+  """
   scale = target_size / max(shape)
-  new_shape = [int(round(dim * scale)) for dim in shape]
-  return [max(stride, int(np.ceil(dim / stride) * stride)) for dim in new_shape]
+  h, w = shape
+  th, tw = int(round(h * scale)), int(round(w * scale))
+  w_final = max(stride, int(np.ceil(tw / stride) * stride))
+  h_final = max(stride, int(np.ceil(th / stride) * stride))
+  return w_final, h_final
 
 
 def preprocess(
@@ -64,14 +73,17 @@ def preprocess(
   stride: int = 32,
   dtype: np.dtype = np.float32,
 ) -> tuple[torch.Tensor, tuple[int, int]]:
-  """Uniform preprocessing for all model types."""
-  orig_size = (img.shape[0], img.shape[1])
+  """Uniform preprocessing for all model types.
+  target_size: (width, height)
+  returns: (tensor, orig_size=(width, height))
+  """
+  orig_size = (img.shape[1], img.shape[0])
 
   if not keep_aspect:
-    img = cv2.resize(img, (target_size[1], target_size[0]), interpolation=cv2.INTER_AREA)
+    img = cv2.resize(img, target_size, interpolation=cv2.INTER_AREA)
   elif rect:
-    h_t, w_t = compute_nearest_size(img.shape[:2], max(target_size))
-    img = letterbox(img, (h_t, w_t), stride=stride, auto=False)[0]
+    w_t, h_t = compute_nearest_size(img.shape[:2], max(target_size))
+    img = letterbox(img, (w_t, h_t), stride=stride, auto=False)[0]
   else:
     img = letterbox(img, target_size, stride=stride, auto=False)[0]
 
@@ -84,9 +96,12 @@ def preprocess(
 def scale_boxes(
   boxes: np.ndarray, orig_size: tuple[float, float], proc_size: tuple[float, float]
 ) -> np.ndarray:
-  """Scale boxes from proc_size to orig_size without ratio keeping."""
-  h0, w0 = orig_size
-  hp, wp = proc_size
+  """Scale boxes from proc_size to orig_size without ratio keeping.
+  orig_size: (width, height)
+  proc_size: (width, height)
+  """
+  w0, h0 = orig_size
+  wp, hp = proc_size
   new_boxes = boxes.copy()
   new_boxes[:, [0, 2]] *= w0 / wp
   new_boxes[:, [1, 3]] *= h0 / hp
@@ -96,9 +111,12 @@ def scale_boxes(
 def scale_boxes_ratio_kept(
   boxes: np.ndarray, proc_size: tuple[float, float], orig_size: tuple[float, float]
 ) -> np.ndarray:
-  """Scale boxes from proc_size to orig_size while keeping aspect ratio (reversing padding)."""
-  hp, wp = proc_size
-  h0, w0 = orig_size
+  """Scale boxes from proc_size to orig_size while keeping aspect ratio (reversing padding).
+  proc_size: (width, height)
+  orig_size: (width, height)
+  """
+  wp, hp = proc_size
+  w0, h0 = orig_size
   gain = min(hp / h0, wp / w0)
   padw = (wp - w0 * gain) / 2
   padh = (hp - h0 * gain) / 2
@@ -119,11 +137,11 @@ def process_boxes(
   """
   Convert normalized boxes to absolute coordinates based on image sizes.
   boxes: [B, Q, 4] in norm xywh
-  processed_size: (H_proc, W_proc)
-  orig_sizes: [B, 2] (H_orig, W_orig)
+  processed_size: (width, height)
+  orig_sizes: [B, 2] (width, height)
   """
   B = boxes.shape[0]
-  hp, wp = processed_size
+  wp, hp = processed_size
   new_boxes = torch.zeros_like(boxes)
 
   # norm xywh -> abs xyxy in processed size
@@ -134,7 +152,7 @@ def process_boxes(
 
   new_boxes_np = new_boxes.cpu().numpy()
   orig_sizes_np = orig_sizes.cpu().numpy()
-  proc_size_np = (float(hp), float(wp))
+  proc_size_np = (float(wp), float(hp))
 
   for i in range(B):
     if keep_aspect:
@@ -158,13 +176,15 @@ def process_masks(
   """
   Efficiently process masks by only interpolating within bounding boxes.
   Returns a list of lists of InstanceMask objects.
+  processed_size: (width, height)
+  orig_sizes: [B, 2] (width, height)
   """
   B, K, Hm, Wm = masks.shape
-  Hp, Wp = processed_size
+  Wp, Hp = processed_size
 
   results = []
   for i in range(B):
-    h0, w0 = int(orig_sizes[i, 0]), int(orig_sizes[i, 1])
+    w0, h0 = int(orig_sizes[i, 0]), int(orig_sizes[i, 1])
     img_instances = []
 
     gain = min(Hp / h0, Wp / w0) if keep_aspect else 1.0
@@ -212,71 +232,22 @@ def process_masks(
   return results
 
 
-def postprocess_ground_truth(
-  inputs: torch.Tensor,
-  targets: list[dict[str, torch.Tensor]],
-  orig_sizes: torch.Tensor,
-  keep_aspect: bool,
-) -> list[ImageResult]:
-  """Postprocess ground truth targets."""
-  results = []
-  processed_size = tuple(inputs.shape[2:])
-
-  for idx, target in enumerate(targets):
-    lab = target["labels"]
-    box = process_boxes(
-      target["boxes"][None], processed_size, orig_sizes[idx][None], keep_aspect, inputs.device
-    )
-
-    img_size = tuple(orig_sizes[idx].int().tolist())
-    masks = []
-
-    if "masks" in target and target["masks"] is not None and target["masks"].numel() > 0:
-      gt_m = target["masks"].float()
-      Hp, Wp = processed_size
-      pb = target["boxes"].clone()
-      pb[:, 0] = (target["boxes"][:, 0] - target["boxes"][:, 2] / 2) * Wp
-      pb[:, 1] = (target["boxes"][:, 1] - target["boxes"][:, 3] / 2) * Hp
-      pb[:, 2] = (target["boxes"][:, 0] + target["boxes"][:, 2] / 2) * Wp
-      pb[:, 3] = (target["boxes"][:, 1] + target["boxes"][:, 3] / 2) * Hp
-
-      instances = process_masks(
-        gt_m.unsqueeze(0),
-        pb.unsqueeze(0),
-        lab.unsqueeze(0),
-        torch.ones_like(lab.unsqueeze(0), dtype=torch.float32),
-        processed_size=processed_size,
-        orig_sizes=orig_sizes[idx].unsqueeze(0),
-        keep_aspect=keep_aspect,
-        conf_thresh=0.5,
-      )
-      masks = instances[0]
-
-    results.append(
-      ImageResult(
-        labels=lab.detach().cpu(),
-        boxes=box.squeeze(0).detach().cpu(),
-        img_size=img_size,
-        scores=torch.ones_like(lab, dtype=torch.float32),
-        masks=masks,
-      )
-    )
-  return results
-
-
 def postprocess_predictions(
   outputs: dict[str, torch.Tensor],
   orig_sizes: torch.Tensor,
   config: EvaluationConfig,
   processed_size: tuple[int, int],
 ) -> list[ImageResult]:
-  """Postprocess model predictions."""
+  """Postprocess model predictions.
+  processed_size: (width, height)
+  orig_sizes: [B, 2] (width, height)
+  """
   logits, boxes = outputs["pred_logits"], outputs["pred_boxes"]
   has_masks = ("pred_masks" in outputs) and (outputs["pred_masks"] is not None)
   pred_masks = outputs["pred_masks"] if has_masks else None
   B, Q = logits.shape[:2]
 
-  hp, wp = processed_size
+  wp, hp = processed_size
   pb = torch.zeros_like(boxes)
   pb[:, :, 0] = (boxes[:, :, 0] - boxes[:, :, 2] / 2) * wp
   pb[:, :, 1] = (boxes[:, :, 1] - boxes[:, :, 3] / 2) * hp
@@ -310,7 +281,7 @@ def postprocess_predictions(
     sb, lb, qb = sb[keep], lb[keep], qb[keep]
     bb = abs_boxes[b].gather(0, qb.unsqueeze(-1).repeat(1, 4))
 
-    img_size = tuple(orig_sizes[b].int().tolist())
+    img_size = tuple(orig_sizes[b].int().tolist()) # (width, height)
     masks = []
 
     if has_masks and qb.numel() > 0:
@@ -341,34 +312,3 @@ def postprocess_predictions(
       )
     )
   return results
-
-
-def cleanup_masks(masks: np.ndarray) -> np.ndarray:
-  """Simple NumPy-only mask cleanup to avoid redundant implementations."""
-  if masks.ndim == 2:
-    return (masks > 0.5).astype(np.uint8)
-  return (masks > 0.5).astype(np.uint8)
-
-
-def to_instance_masks(raw_res_dict: dict, conf_thresh: float | None = None) -> list[InstanceMask]:
-  """Convert a detection result dictionary to a list of InstanceMask objects.
-
-  Args:
-      raw_res_dict: Dictionary with keys "boxes", "labels", "scores", and "masks"
-      conf_thresh: Optional confidence threshold to filter results
-
-  Returns:
-      List of InstanceMask objects
-  """
-  labels = torch.from_numpy(raw_res_dict["labels"])
-  boxes = torch.from_numpy(raw_res_dict["boxes"])
-  scores = torch.from_numpy(raw_res_dict["scores"])
-  masks = raw_res_dict.get("masks", [])
-  img_size = raw_res_dict.get("img_size", (0, 0))
-
-  res = ImageResult(labels=labels, boxes=boxes, img_size=img_size, scores=scores, masks=masks)
-
-  if conf_thresh is not None:
-    res = res.filter(conf_thresh)
-
-  return res.masks

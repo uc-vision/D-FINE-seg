@@ -1,70 +1,79 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
-import numpy as np
-import pandas as pd
+
 import torch
-from tabulate import tabulate
-from tqdm import tqdm
 from loguru import logger
 
 from d_fine.config import TrainConfig
 from d_fine.infer.torch_model import Torch_model
 
 
-def run_batch_benchmark(
-  train_config: TrainConfig, num_images: int = 512, batch_sizes: list[int] | None = None
-) -> pd.DataFrame:
-  """Benchmark model throughput for different batch sizes."""
-  batch_sizes = batch_sizes or [1, 2, 4, 8, 16, 32]
-  torch_model = Torch_model.from_train_config(train_config)
-
-  # Get a sample image for realistic sizing
-  loader = train_config.dataset.create_loader(batch_size=1, num_workers=0)
-  _, val_loader, _ = loader.build_dataloaders(distributed=False)
-  img = val_loader.dataset.get_data(0).image
-
-  def bench_bs(bs: int) -> dict:
-    batch_img = np.stack([img] * bs)
-    iterations = max(1, num_images // bs)
-
-    # Warmup
-    for _ in range(3):
-      _ = torch_model.predict_batch(batch_img)
-
-    if torch.cuda.is_available():
-      torch.cuda.synchronize()
-
-    t0 = time.perf_counter()
-    for _ in tqdm(range(iterations), desc=f"Batch size {bs}", leave=False):
-      _ = torch_model.predict_batch(batch_img)
-
-    if torch.cuda.is_available():
-      torch.cuda.synchronize()
-    t1 = time.perf_counter()
-
-    total_images = iterations * bs
-    elapsed = t1 - t0
-
-    return {
-      "bs": bs,
-      "throughput": total_images / elapsed,
-      "latency_ms": (elapsed * 1000) / total_images,
-    }
-
-  results = [bench_bs(bs) for bs in batch_sizes]
-  return pd.DataFrame(results)
-
-
-def run_benchmark(train_config: TrainConfig) -> None:
+def run_benchmark(config: TrainConfig) -> None:
   """Run batching throughput benchmark."""
-  df = run_batch_benchmark(train_config)
+  logger.info(f"Running batching throughput benchmark for {config.exp_name}")
 
-  save_dir = train_config.paths.path_to_save
-  save_dir.mkdir(parents=True, exist_ok=True)
-  save_path = save_dir / "batch_benchmark.csv"
-  df.to_csv(save_path, index=False)
+  classes_path = config.paths.path_to_save / "classes.json"
+  if not classes_path.exists():
+    raise FileNotFoundError(f"Classes configuration not found at {classes_path}")
 
-  logger.info(f"Results saved to {save_path}")
-  print("\n" + tabulate(df.round(2), headers="keys", tablefmt="pretty", showindex=False))
+  from d_fine.config import ClassConfig
+
+  class_config_obj = ClassConfig.load(classes_path)
+  num_classes = len(class_config_obj.label_to_name)
+
+  torch_model = Torch_model.from_train_config(
+    config,
+    num_classes=num_classes,
+    model_path=config.paths.path_to_save / "model.pt",
+    device=torch.device(config.device),
+  )
+  device = torch_model.device
+
+  # Benchmark parameters
+  batch_sizes = [1, 2, 4, 8, 16, 32, 64]
+  h, w = config.dataset.img_size[1], config.dataset.img_size[0]
+  n_iters = 50
+
+  print("\n" + "=" * 80)
+  print(f"BATCHING THROUGHPUT BENCHMARK: {config.exp_name}")
+  print("=" * 80)
+  print(f"{'Batch Size':<12} | {'Model FPS':<15} | {'Latency/Img (ms)':<18} | {'Status':<15}")
+  print("-" * 80)
+
+  for bs in batch_sizes:
+    try:
+      # Use random data on device for pure model throughput
+      dummy_batch = torch.randn(bs, 3, h, w).to(device)
+
+      # Warmup
+      for _ in range(10):
+        _ = torch_model.model(dummy_batch)
+      if device.type == "cuda":
+        torch.cuda.synchronize()
+
+      # Measure model throughput
+      start = time.perf_counter()
+      for _ in range(n_iters):
+        _ = torch_model.model(dummy_batch)
+      if device.type == "cuda":
+        torch.cuda.synchronize()
+      end = time.perf_counter()
+
+      total_time = end - start
+      fps = (bs * n_iters) / total_time
+      latency_per_img = (total_time / (bs * n_iters)) * 1000
+
+      print(f"{bs:<12} | {fps:<15.2f} | {latency_per_img:<18.2f} | {'OK':<15}")
+
+    except torch.cuda.OutOfMemoryError:
+      print(f"{bs:<12} | {'-':<15} | {'-':<18} | {'OOM':<15}")
+      if device.type == "cuda":
+        torch.cuda.empty_cache()
+      break
+    except Exception as e:
+      print(f"{bs:<12} | {'-':<15} | {'-':<18} | {'Error':<15}")
+      logger.error(f"Batch size {bs} failed: {e}")
+      break
+
+  print("=" * 80 + "\n")

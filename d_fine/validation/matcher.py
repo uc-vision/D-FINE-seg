@@ -1,13 +1,17 @@
 from __future__ import annotations
+
 from collections import defaultdict
 from collections.abc import Callable
-import torch
+
 import numpy as np
+import torch
 from torchvision.ops import box_iou
-from .metrics import PerClassMetrics
-from .confusion_matrix import ConfusionMatrix
-from .utils import Match, MatchingResult, update_metrics_with_matches
+
 from d_fine.core.types import ImageResult
+
+from .confusion_matrix import ConfusionMatrix
+from .metrics import PerClassMetrics
+from .utils import Match, MatchingResult, update_metrics_with_matches
 
 
 def greedy_match(ious: torch.Tensor, iou_threshold: float) -> MatchingResult:
@@ -67,13 +71,15 @@ class GreedyMatcher:
     gts: list[ImageResult],
     conf_matrix: ConfusionMatrix,
     iou_fn: Callable[[ImageResult, ImageResult], torch.Tensor],
-  ) -> dict[int, PerClassMetrics]:
+  ) -> tuple[dict[int, PerClassMetrics], ConfusionMatrix]:
     """Computes per-class metrics across a batch of images using greedy matching."""
     metrics: dict[int, PerClassMetrics] = defaultdict(PerClassMetrics)
 
     for pred, gt in zip(preds, gts):
       ious = iou_fn(pred, gt)
       result = greedy_match(ious, self.iou_threshold)
-      update_metrics_with_matches(metrics, conf_matrix, pred.labels, gt.labels, result)
+      metrics, conf_matrix = update_metrics_with_matches(
+        metrics, conf_matrix, pred.labels, gt.labels, result
+      )
 
-    return metrics
+    return metrics, conf_matrix

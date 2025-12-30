@@ -23,10 +23,11 @@ class OV_model(InferenceModel):
     self._load_model()
 
   @classmethod
-  def from_train_config(cls, train_config: TrainConfig, max_batch_size: int = 1) -> OV_model:
+  def from_train_config(
+    cls, train_config: TrainConfig, num_classes: int, model_path: Path, max_batch_size: int = 1
+  ) -> OV_model:
     """Create an OV_model from a training configuration."""
-    model_path = train_config.paths.path_to_save / "model.xml"
-    config = train_config.get_evaluation_config(train_config.num_classes)
+    config = train_config.get_evaluation_config(num_classes)
     return cls(config, model_path, max_batch_size=max_batch_size)
 
   def _load_model(self) -> None:
@@ -42,7 +43,8 @@ class OV_model(InferenceModel):
       self.device = "CPU"
 
     if self.device != "CPU":
-      det_ov_model.reshape({"input": [1, 3, self.config.input_height, self.config.input_width]})
+      tw, th = self.config.input_size
+      det_ov_model.reshape({"input": [1, 3, th, tw]})
 
     inference_hint = "f16" if self.config.half else "f32"
     inference_mode = "CUMULATIVE_THROUGHPUT" if self.max_batch_size > 1 else "LATENCY"
@@ -59,12 +61,12 @@ class OV_model(InferenceModel):
     """Preprocess a single image for the model."""
     tensor, orig_size = infer_utils.preprocess(
       img,
-      (self.config.input_height, self.config.input_width),
+      self.config.input_size,
       self.config.keep_aspect,
       self.config.rect,
       dtype=self.config.np_dtype,
     )
-    processed_size = (tensor.shape[1], tensor.shape[2])
+    processed_size = (tensor.shape[2], tensor.shape[1]) # (width, height)
     return tensor.unsqueeze(0).numpy(), processed_size, orig_size
 
   def _predict(self, inputs: NDArray) -> list[NDArray]:

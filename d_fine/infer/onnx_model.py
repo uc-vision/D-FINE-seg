@@ -21,11 +21,9 @@ class ONNX_model(InferenceModel):
     self._load_model()
 
   @classmethod
-  def from_train_config(cls, train_config: TrainConfig) -> ONNX_model:
+  def from_train_config(cls, train_config: TrainConfig, num_classes: int, model_path: Path) -> ONNX_model:
     """Create an ONNX_model from a training configuration."""
-    model_path = train_config.paths.path_to_save / "model.onnx"
-    config = train_config.get_evaluation_config(train_config.num_classes)
-    # Force rect=False and half=False for ONNX if needed, but evaluation_config usually comes from YAML
+    config = train_config.get_evaluation_config(num_classes)
     return cls(config, model_path)
 
   def _load_model(self) -> None:
@@ -42,12 +40,12 @@ class ONNX_model(InferenceModel):
     """Preprocess a single image for the model."""
     tensor, orig_size = infer_utils.preprocess(
       img,
-      (self.config.input_height, self.config.input_width),
+      self.config.input_size,
       self.config.keep_aspect,
       self.config.rect,
       dtype=self.config.np_dtype,
     )
-    processed_size = (tensor.shape[1], tensor.shape[2])
+    processed_size = (tensor.shape[2], tensor.shape[1])
     return tensor.unsqueeze(0).numpy(), processed_size, orig_size
 
   def _predict(self, inputs: NDArray) -> dict[str, NDArray]:

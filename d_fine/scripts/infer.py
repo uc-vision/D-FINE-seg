@@ -43,14 +43,27 @@ def main(
   except Exception as e:
     raise click.BadParameter(f"Failed to load config: {e}")
 
-  if conf_thresh is not None:
-    train_config = train_config.model_copy(update={"conf_thresh": conf_thresh})
+  # Load label_to_name from classes.json
+  classes_path = training_path / "classes.json"
+  if not classes_path.exists():
+    raise FileNotFoundError(f"Classes configuration not found at {classes_path}")
 
-  torch_model = Torch_model.from_train_config(train_config)
+  from d_fine.config import ClassConfig
 
-  # Load label_to_name from loader
-  loader = train_config.dataset.create_loader(batch_size=1, num_workers=0)
-  label_to_name = loader.label_to_name
+  class_config_obj = ClassConfig.load(classes_path)
+  label_to_name = class_config_obj.label_to_name
+  num_classes = len(label_to_name)
+
+  model_path = training_path / "model.pt"
+  if not model_path.exists():
+    raise FileNotFoundError(f"Model file not found at {model_path}")
+
+  torch_model = Torch_model.from_train_config(
+    train_config,
+    num_classes=num_classes,
+    model_path=model_path,
+    device=torch.device(train_config.device),
+  )
 
   if view:
     class_config = ClassConfig(

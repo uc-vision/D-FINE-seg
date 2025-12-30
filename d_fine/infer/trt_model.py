@@ -21,10 +21,9 @@ class TRT_model(InferenceModel):
     self._load_model()
 
   @classmethod
-  def from_train_config(cls, train_config: TrainConfig) -> TRT_model:
+  def from_train_config(cls, train_config: TrainConfig, num_classes: int, model_path: Path) -> TRT_model:
     """Create a TRT_model from a training configuration."""
-    model_path = train_config.paths.path_to_save / "model.engine"
-    config = train_config.get_evaluation_config(train_config.num_classes)
+    config = train_config.get_evaluation_config(num_classes)
     # Force rect=False for TRT engine usually
     config = config.model_copy(update={"rect": False})
     return cls(config, model_path)
@@ -54,20 +53,15 @@ class TRT_model(InferenceModel):
     preds = self._predict(processed_inputs)
     self._postprocess(preds, processed_sizes, original_sizes)
 
-  def _compute_nearest_size(self, shape, target_size, stride=32) -> tuple[int, int]:
-    scale = target_size / max(shape)
-    new_shape = [int(round(dim * scale)) for dim in shape]
-    return [max(stride, int(np.ceil(dim / stride) * stride)) for dim in new_shape]
-
   def _preprocess(self, img: NDArray, stride: int = 32) -> torch.Tensor:
-    input_size = (self.config.input_height, self.config.input_width)
+    input_size = self.config.input_size
     if not self.config.keep_aspect:
-      img = cv2.resize(img, (input_size[1], input_size[0]), interpolation=cv2.INTER_AREA)
+      img = cv2.resize(img, input_size, interpolation=cv2.INTER_AREA)
     elif self.config.rect:
-      target_height, target_width = self._compute_nearest_size(img.shape[:2], max(*input_size))
-      img = infer_utils.letterbox(img, (target_height, target_width), stride=stride, auto=False)[0]
+      w_t, h_t = infer_utils.compute_nearest_size(img.shape[:2], max(input_size))
+      img = infer_utils.letterbox(img, (w_t, h_t), stride=stride, auto=False)[0]
     else:
-      img = infer_utils.letterbox(img, (input_size[0], input_size[1]), stride=stride, auto=False)[0]
+      img = infer_utils.letterbox(img, input_size, stride=stride, auto=False)[0]
 
     img = img.transpose(2, 0, 1)
     img = np.ascontiguousarray(img, dtype=self.config.np_dtype)
@@ -77,21 +71,21 @@ class TRT_model(InferenceModel):
   def _prepare_inputs(self, inputs):
     original_sizes = []
     processed_sizes = []
-    input_size = (self.config.input_height, self.config.input_width)
+    input_size = self.config.input_size
 
     if isinstance(inputs, np.ndarray) and inputs.ndim == 3:
       processed_inputs = self._preprocess(inputs)[None]
-      original_sizes.append((inputs.shape[0], inputs.shape[1]))
-      processed_sizes.append(processed_inputs[0].shape[1:])
+      original_sizes.append((inputs.shape[1], inputs.shape[0]))
+      processed_sizes.append((processed_inputs[0].shape[2], processed_inputs[0].shape[1]))
     elif isinstance(inputs, np.ndarray) and inputs.ndim == 4:
       processed_inputs = torch.zeros(
-        (inputs.shape[0], 3, *input_size),
+        (inputs.shape[0], 3, input_size[1], input_size[0]),
         dtype=torch.from_numpy(np.zeros(0, dtype=self.config.np_dtype)).dtype,
       )
       for idx, image in enumerate(inputs):
         processed_inputs[idx] = self._preprocess(image)
-        original_sizes.append(image.shape[:2])
-        processed_sizes.append(processed_inputs[idx].shape[1:])
+        original_sizes.append((image.shape[1], image.shape[0]))
+        processed_sizes.append((processed_inputs[idx].shape[2], processed_inputs[idx].shape[1]))
 
     if self.device == "cuda":
       processed_inputs = processed_inputs.pin_memory().to(self.device, non_blocking=True)
@@ -143,7 +137,7 @@ class TRT_model(InferenceModel):
       config=self.config,
       processed_size=processed_sizes[0]
       if len(processed_sizes) > 0
-      else (self.config.input_height, self.config.input_width),
+      else self.config.input_size,
     )
 
   def __call__(self, inputs: NDArray[np.uint8]) -> ImageResult:

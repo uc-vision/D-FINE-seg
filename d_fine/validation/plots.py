@@ -31,9 +31,9 @@ class ValidationPlotter:
     for threshold in self.thresholds:
       filtered_preds = [p.filter(threshold) for p in preds]
       metrics = compute_metrics_fn(filtered_preds)
-      precisions.append(metrics.precision)
-      recalls.append(metrics.recall)
-      f1_scores.append(metrics.f1)
+      precisions.append(metrics.core.precision)
+      recalls.append(metrics.core.recall)
+      f1_scores.append(metrics.core.f1)
 
     self._plot_curves(
       self.thresholds,
